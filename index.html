@@ -1,0 +1,1214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wayfinder · Partners Mortgage</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,500;0,600;0,700;0,800;0,900&family=Lora:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Lobster+Two:ital,wght@1,400;1,700&display=swap" rel="stylesheet">
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  :root{
+    --teal-500:#00818d; --teal-600:#006e78; --teal-800:#044248; --teal-900:#062f34;
+    --teal-wash:#e6f2f3;
+    --amber-500:#ffac27; --amber-600:#e6971a; --amber-wash:#fff3de;
+    --sand-50:#faf9f8; --sand-100:#f3f1ef; --sand-200:#e7e3df; --sand-300:#d8d2cc;
+    --sand-500:#8a7e78; --sand-600:#6f645f; --sand-800:#3a332f; --sand-900:#241f1d;
+    --pm-coral:#fb5058; --pm-green:#96c121; --pm-green-wash:#eef6d8;
+    --white:#ffffff;
+    --font-display:'Montserrat', system-ui, sans-serif;
+    --font-body:'Lora', Georgia, serif;
+    --font-script:'Lobster Two', cursive;
+    --shadow-card:0 1px 2px rgba(36,31,29,.04), 0 8px 22px rgba(36,31,29,.05);
+    --shadow-dark:0 20px 50px rgba(6,47,52,.28);
+    --focus:0 0 0 3px rgba(0,129,141,.15);
+    --radius-card:18px; --radius-input:11px;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body,#root{height:100%}
+  body{font-family:var(--font-body);background:var(--sand-50);color:var(--sand-800);-webkit-font-smoothing:antialiased;line-height:1.65}
+  ::selection{background:var(--teal-wash)}
+  input,textarea,button,select{font-family:inherit}
+  textarea{resize:vertical}
+  .u{font-family:var(--font-display);text-transform:uppercase}
+  .num{font-family:var(--font-display);font-variant-numeric:tabular-nums}
+  button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,a:focus-visible{outline:none;box-shadow:var(--focus)}
+  input:focus,textarea:focus{border-color:var(--teal-500)!important;box-shadow:var(--focus)}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes pulseDot{0%,100%{opacity:1}50%{opacity:.3}}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script>
+window.WAYFINDER_CONFIG = {
+  ACCESS_PIN: "1988",
+  firebase: { apiKey:"AIzaSyBA5MupoOC5_UjOPv5Umg4rn8Vzi6NLA8Y", authDomain:"wayfinder-1b0a4.firebaseapp.com", projectId:"wayfinder-1b0a4", storageBucket:"wayfinder-1b0a4.firebasestorage.app", messagingSenderId:"1017935566063", appId:"1:1017935566063:web:8f362b8f0818a06241771a" },
+  R2_UPLOAD_URL: "https://wayfinder-r2.partnersmortgage88.workers.dev",
+  PROXY_URL: "https://wayfinder-proxy.partnersmortgage88.workers.dev"
+};
+</script>
+
+<script type="text/babel">
+const { useState, useRef, useEffect } = React;
+const CFG = window.WAYFINDER_CONFIG;
+
+/* ---------- Firebase init (graceful) ---------- */
+let db = null, FB_ON = false;
+try{
+  if(CFG.firebase && CFG.firebase.apiKey && CFG.firebase.projectId){
+    firebase.initializeApp(CFG.firebase);
+    db = firebase.firestore();
+    FB_ON = true;
+  }
+}catch(e){ FB_ON = false; }
+
+/* ---------- proxy helpers (secrets live in the Worker, not here) ---------- */
+const PROXY = (CFG.PROXY_URL||"").replace(/\/+$/,"");
+async function callClaude(payload){
+  const r = await fetch(PROXY + "/claude", {
+    method:"POST",
+    headers:{ "Content-Type":"application/json", "x-gate-pin": String(CFG.ACCESS_PIN||"") },
+    body: JSON.stringify(payload)
+  });
+  return r;
+}
+async function callRender(body){
+  const r = await fetch(PROXY + "/render", {
+    method:"POST",
+    headers:{ "Content-Type":"application/json", "x-gate-pin": String(CFG.ACCESS_PIN||"") },
+    body: JSON.stringify(body)
+  });
+  return r;
+}
+
+/* ---------- Icons ---------- */
+const Icon = ({ size = 20, fill = "none", stroke = 2, children, ...p }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill={fill} stroke="currentColor"
+    strokeWidth={stroke} strokeLinecap="round" strokeLinejoin="round" {...p}>{children}</svg>
+);
+const IcRecord=(p)=><Icon {...p}><circle cx="12" cy="12" r="6" fill="currentColor" stroke="none"/></Icon>;
+const IcStop=(p)=><Icon {...p}><rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor" stroke="none"/></Icon>;
+const IcSpark=(p)=><Icon {...p}><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M18 6l-2.5 2.5M8.5 15.5 6 18"/></Icon>;
+const IcCheck=(p)=><Icon {...p}><path d="M20 6 9 17l-5-5"/></Icon>;
+const IcX=(p)=><Icon {...p}><path d="M18 6 6 18M6 6l12 12"/></Icon>;
+const IcEdit=(p)=><Icon {...p}><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></Icon>;
+const IcTrash=(p)=><Icon {...p}><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></Icon>;
+const IcVideo=(p)=><Icon {...p}><path d="m22 8-6 4 6 4V8ZM2 6a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6Z"/></Icon>;
+const IcDoc=(p)=><Icon {...p}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8ZM14 2v6h6M9 13h6M9 17h6"/></Icon>;
+const IcLink=(p)=><Icon {...p}><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></Icon>;
+const IcArrow=(p)=><Icon {...p}><path d="M5 12h14M13 6l6 6-6 6"/></Icon>;
+const IcArrowL=(p)=><Icon {...p}><path d="M19 12H5M11 18l-6-6 6-6"/></Icon>;
+const IcPlus=(p)=><Icon {...p}><path d="M12 5v14M5 12h14"/></Icon>;
+const IcKey=(p)=><Icon {...p}><path d="M15.5 7.5a4 4 0 1 1-4-4 4 4 0 0 1 4 4Zm-1.9 1.9L21 16.8V21h-4.2l-1.4-1.4v-2l-2-2"/></Icon>;
+const IcPlay=(p)=><Icon {...p}><path d="M6 4l14 8-14 8V4Z" fill="currentColor" stroke="none"/></Icon>;
+const IcGrip=(p)=><Icon {...p}><circle cx="9" cy="6" r="1.4" fill="currentColor" stroke="none"/><circle cx="15" cy="6" r="1.4" fill="currentColor" stroke="none"/><circle cx="9" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="9" cy="18" r="1.4" fill="currentColor" stroke="none"/><circle cx="15" cy="18" r="1.4" fill="currentColor" stroke="none"/></Icon>;
+const IcClock=(p)=><Icon {...p}><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></Icon>;
+const IcSearch=(p)=><Icon {...p}><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></Icon>;
+const IcScissors=(p)=><Icon {...p}><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.12 15.88M14.47 14.48 20 20M8.12 8.12 12 12"/></Icon>;
+const IcDownload=(p)=><Icon {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></Icon>;
+const IcEye=(p)=><Icon {...p}><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></Icon>;
+const IcUsers=(p)=><Icon {...p}><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></Icon>;
+const IcFlag=(p)=><Icon {...p}><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1ZM4 22v-7"/></Icon>;
+const IcSlack=(p)=><Icon {...p}><path d="M9 3a1.5 1.5 0 0 0 0 3h1.5V4.5A1.5 1.5 0 0 0 9 3ZM9 9H4.5a1.5 1.5 0 0 0 0 3H9a1.5 1.5 0 0 0 0-3ZM21 9a1.5 1.5 0 0 0-3 0v1.5h1.5A1.5 1.5 0 0 0 21 9ZM15 9V4.5a1.5 1.5 0 0 0-3 0V9a1.5 1.5 0 0 0 3 0ZM15 21a1.5 1.5 0 0 0 0-3h-1.5v1.5A1.5 1.5 0 0 0 15 21ZM15 15h4.5a1.5 1.5 0 0 0 0-3H15a1.5 1.5 0 0 0 0 3ZM3 15a1.5 1.5 0 0 0 3 0v-1.5H4.5A1.5 1.5 0 0 0 3 15ZM9 15v4.5a1.5 1.5 0 0 0 3 0V15a1.5 1.5 0 0 0-3 0Z"/></Icon>;
+const IcMonitor=(p)=><Icon {...p}><path d="M3 4h18a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1ZM8 21h8M12 17v4"/></Icon>;
+
+/* ---------- Waypoint mark (approved 1a) ---------- */
+const Mark = ({ size = 30, onDark }) => {
+  const roof = onDark ? "#ffffff" : "var(--teal-500)";
+  const house = onDark ? "var(--amber-500)" : "var(--sand-500)";
+  const dot = onDark ? "var(--teal-900)" : "#ffffff";
+  return (
+    <svg width={size} height={size} viewBox="0 0 96 96" fill="none" aria-hidden="true">
+      <path d="M14 48 L48 17 L82 48" stroke={roof} strokeWidth="11" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M30 62 L48 45 L66 62 L66 79 L30 79 Z" fill={house}/>
+      <circle cx="48" cy="68" r="6" fill={dot}/>
+    </svg>
+  );
+};
+const AscentGlyph = ({ size=54 })=>(
+  <svg width={size} height={size} viewBox="0 0 96 96" fill="none" aria-hidden="true">
+    <circle cx="48" cy="48" r="44" fill="rgba(255,172,39,.12)" stroke="var(--amber-500)" strokeWidth="3"/>
+    <path d="M24 62 L40 44 L52 54 L72 30" stroke="var(--amber-500)" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round"/>
+    <path d="M60 30 L72 30 L72 42" stroke="var(--amber-500)" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+);
+
+const MODEL = "claude-opus-4-6";
+const LS_KEY = "wf_apikey";
+const LS_GUIDES = "wf_guides";
+const SS_UNLOCK = "wf_unlocked";
+const CATS = ["Pricing","LOS","Documents","Compliance","Onboarding"];
+
+/* ---------- resilient storage ---------- */
+const memStore = {};
+const store = {
+  get(k){
+    try{ const v=localStorage.getItem(k); if(v!==null) return v; }catch{}
+    try{ const m=document.cookie.match(new RegExp("(?:^|; )"+k+"=([^;]*)")); if(m) return decodeURIComponent(m[1]); }catch{}
+    return k in memStore ? memStore[k] : null;
+  },
+  set(k,v){ memStore[k]=v; let ok=false;
+    try{ localStorage.setItem(k,v); ok=true; }catch{}
+    if(!ok){ try{ document.cookie = `${k}=${encodeURIComponent(v)}; path=/; max-age=${60*60*24*180}; SameSite=Lax`; }catch{} }
+  },
+  del(k){ delete memStore[k]; try{ localStorage.removeItem(k); }catch{} try{ document.cookie = `${k}=; path=/; max-age=0`; }catch{} }
+};
+
+const SEED = [
+  { id:"seed-1", name:"How to price a loan in Lender Price", desc:"Pull and compare rate options for a borrower, then send the best fit.", steps:5, mins:4, cat:"Pricing", status:"Published", updated:Date.now()-86400000*2, plays:38, pct:82, author:"Rachael Gaines", coverFrame:"" },
+  { id:"seed-2", name:"Uploading borrower documents", desc:"Where docs go and how to tag them so nothing gets lost.", steps:4, mins:3, cat:"Documents", status:"Draft", updated:Date.now()-86400000*6, plays:12, pct:40, author:"Marcus Reed", coverFrame:"" },
+  { id:"seed-3", name:"Running a pre-approval", desc:"End to end pre-approval in the LOS, start to letter.", steps:7, mins:6, cat:"LOS", status:"Published", updated:Date.now()-86400000*11, plays:57, pct:91, author:"Rachael Gaines", coverFrame:"" },
+];
+const loadLocal = ()=>{ try{ const s=store.get(LS_GUIDES); return s?JSON.parse(s):SEED; }catch{ return SEED; } };
+const saveLocal = (g)=>{ try{ store.set(LS_GUIDES, JSON.stringify(g)); }catch{} };
+const timeAgo = (t)=>{ const d=Math.floor((Date.now()-t)/86400000); return d<=0?"today":d===1?"yesterday":`${d} days ago`; };
+const fmt=(sec)=>{ sec=Math.max(0,Math.round(sec||0)); const m=Math.floor(sec/60),s=sec%60; return `${m}:${String(s).padStart(2,"0")}`; };
+const ROOF = encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='72' height='72'><g fill='none' stroke='#ffffff' stroke-opacity='0.12' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><path d='M0 30 L18 12 L36 30 L54 12 L72 30'/><path d='M0 60 L18 42 L36 60 L54 42 L72 60'/></g></svg>`);
+
+/* ================================================================ */
+function App(){
+  const [unlocked,setUnlocked] = useState(()=>{ try{ return store.get(SS_UNLOCK)==="1"; }catch{ return false; } });
+  if(!unlocked) return <Gate onOk={()=>{ try{store.set(SS_UNLOCK,"1");}catch{}; setUnlocked(true); }}/>;
+  return <Studio/>;
+}
+
+/* ================= PIN gate ================= */
+function Gate({ onOk }){
+  const [pin,setPin] = useState("");
+  const [err,setErr] = useState(false);
+  const submit = ()=>{ if(pin===String(CFG.ACCESS_PIN)) onOk(); else { setErr(true); setPin(""); } };
+  return (
+    <div style={{minHeight:"100%",display:"grid",placeItems:"center",padding:24,background:"var(--teal-900)"}}>
+      <div style={{position:"absolute",inset:0,backgroundImage:`url("data:image/svg+xml,${ROOF}")`,backgroundSize:"72px 72px",opacity:.6}}/>
+      <div style={{position:"relative",width:"100%",maxWidth:380,textAlign:"center",animation:"fadeUp .4s ease"}}>
+        <div style={{display:"inline-grid",placeItems:"center",width:66,height:66,borderRadius:18,background:"var(--teal-800)",marginBottom:22,boxShadow:"var(--shadow-dark)"}}>
+          <Mark size={40} onDark/>
+        </div>
+        <div className="u" style={{fontWeight:900,fontSize:30,letterSpacing:".1em",color:"#fff"}}>WAYFINDER</div>
+        <div className="u" style={{fontSize:9,letterSpacing:".2em",color:"var(--sand-300)",marginTop:6,marginBottom:26}}>A PARTNERS MORTGAGE TOOL</div>
+        <input type="password" inputMode="numeric" value={pin} autoFocus
+          onChange={e=>{ setPin(e.target.value); setErr(false); }}
+          onKeyDown={e=>{ if(e.key==="Enter") submit(); }} placeholder="••••"
+          style={{...inpDark,textAlign:"center",fontSize:22,letterSpacing:".3em",padding:"14px",borderColor:err?"var(--pm-coral)":"rgba(255,255,255,.16)"}}/>
+        {err && <div style={{color:"#ffb4b8",fontSize:13,marginTop:10}}>That PIN didn't match. Try again.</div>}
+        <button onClick={submit} className="u" style={{...btn.amber,width:"100%",justifyContent:"center",marginTop:16}}>
+          Unlock <IcArrow size={16}/>
+        </button>
+        <p style={{fontSize:12,color:"var(--sand-500)",marginTop:22}}>Internal tool. A shared PIN is a stopgap, not real access control.</p>
+      </div>
+    </div>
+  );
+}
+
+/* ================= Main ================= */
+function Studio(){
+  const [stage,setStage] = useState("library");
+  const [proj,setProj] = useState({ name:"", desc:"", cat:"Pricing" });
+  const [apiKey,setApiKey] = useState(()=>{ try{ return store.get(LS_KEY)||""; }catch{ return ""; } });
+  const [keyState,setKeyState] = useState("idle");
+  const [keyMsg,setKeyMsg] = useState("");
+  const [steps,setSteps] = useState([]);
+  const [scripts,setScripts] = useState({});
+  const [genErr,setGenErr] = useState("");
+  const [busy,setBusy] = useState(false);
+  const [toast,setToast] = useState(null);
+  const [guides,setGuides] = useState([]);
+  const [loadingLib,setLoadingLib] = useState(true);
+  const [recUrl,setRecUrl] = useState(null);
+  const [recBlob,setRecBlob] = useState(null);
+  const [dur,setDur] = useState(0);
+  const [marks,setMarks] = useState([]);
+  const [analyzeMsg,setAnalyzeMsg] = useState("");
+  const [analyzePct,setAnalyzePct] = useState(0);
+  const [analyzeErr,setAnalyzeErr] = useState("");
+  const recRef = useRef(null), streamRef = useRef(null), chunksRef = useRef([]);
+
+  const showToast = (m)=>{ setToast(m); setTimeout(()=>setToast(null),3200); };
+  useEffect(()=>{ try{ apiKey ? store.set(LS_KEY,apiKey) : store.del(LS_KEY); }catch{} },[apiKey]);
+
+  useEffect(()=>{
+    if(FB_ON && db){
+      const unsub = db.collection("guides").orderBy("updated","desc").onSnapshot(
+        snap=>{ setGuides(snap.docs.map(d=>({ id:d.id, ...d.data() }))); setLoadingLib(false); },
+        ()=>{ setGuides(loadLocal()); setLoadingLib(false); }
+      );
+      return ()=>unsub();
+    } else { setGuides(loadLocal()); setLoadingLib(false); }
+  },[]);
+  useEffect(()=>{ if(!FB_ON) saveLocal(guides); },[guides]);
+
+  /* ---------- ENGINE (proxy-routed) ---------- */
+  const testKey = async ()=>{
+    setKeyState("testing"); setKeyMsg("");
+    try{
+      const r = await callClaude({ model:MODEL, max_tokens:8, messages:[{role:"user",content:"ping"}] });
+      if(r.ok){ setKeyState("valid"); setKeyMsg("Connected through the Partners proxy. No key needed on your end."); return; }
+      const e = await r.json().catch(()=>({}));
+      setKeyState("invalid");
+      setKeyMsg(r.status===401 ? "Proxy rejected the request (check the gate PIN or the key stored in the Worker)."
+        : r.status===429 ? "Rate limited (429). Busy, try again shortly."
+        : `Couldn't reach the proxy (${r.status}). ${e?.error?.message||""}`);
+    }catch{
+      setKeyState("invalid");
+      setKeyMsg("Couldn't reach the proxy. Check PROXY_URL and that the Worker is deployed.");
+    }
+  };
+
+  const startRec = async ()=>{
+    try{
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video:{ mediaSource:"screen" }, audio:false });
+      streamRef.current = stream;
+      chunksRef.current = []; setMarks([]);
+      const mr = new MediaRecorder(stream); recRef.current = mr;
+      mr.ondataavailable = (e)=>{ if(e.data && e.data.size) chunksRef.current.push(e.data); };
+      mr.onstop = async ()=>{
+        const blob = new Blob(chunksRef.current, { type: mr.mimeType || "video/webm" });
+        const url = URL.createObjectURL(blob);
+        setRecBlob(blob); setRecUrl(url);
+        setStage("analyzing");
+        analyzeRecording(url);
+      };
+      stream.getVideoTracks()[0].addEventListener("ended", ()=>{ if(recRef.current?.state==="recording") stopRec(); });
+      mr.start(); setStage("recording");
+    }catch{ showToast("Screen sharing was blocked. Allow it and try again."); }
+  };
+  const stopRec = ()=>{
+    if(recRef.current && recRef.current.state!=="inactive") recRef.current.stop();
+    streamRef.current?.getTracks().forEach(t=>t.stop());
+  };
+
+  const loadVideo = (url)=> new Promise((res,rej)=>{
+    const v=document.createElement("video"); v.muted=true; v.playsInline=true; v.preload="auto"; v.src=url;
+    v.onerror=()=>rej(new Error("Couldn't load the recording."));
+    v.onloadedmetadata=()=>{
+      if(v.duration===Infinity || isNaN(v.duration)){
+        v.currentTime=24*3600;
+        v.ontimeupdate=()=>{ v.ontimeupdate=null; v.currentTime=0; res(v); };
+      } else res(v);
+    };
+  });
+  const captureAt = (v,t,w,q)=> new Promise((res)=>{
+    const on=()=>{ v.removeEventListener("seeked",on);
+      const scale=w/(v.videoWidth||w), h=Math.round((v.videoHeight||w)*scale);
+      const c=document.createElement("canvas"); c.width=w; c.height=h||Math.round(w*0.56);
+      try{ c.getContext("2d").drawImage(v,0,0,c.width,c.height); res(c.toDataURL("image/jpeg",q)); }
+      catch{ res(""); }
+    };
+    v.addEventListener("seeked",on);
+    v.currentTime=Math.max(0, Math.min(t, (v.duration||t)-0.05));
+  });
+
+  const visionSteps = async (frames, times, D)=>{
+    const content = frames.map(f=>({ type:"image", source:{ type:"base64", media_type:"image/jpeg", data:f.split(",")[1] } }));
+    const markHint = marks.length ? `\n\nThe author marked likely step boundaries at these times (seconds): ${marks.map(m=>m.toFixed(1)).join(", ")}. Prefer these as boundaries.` : "";
+    content.push({ type:"text", text:
+`These ${frames.length} still frames are sampled from a ${Math.round(D)}-second screen recording of a software workflow. Frame times in seconds: ${times.map(t=>t.toFixed(1)).join(", ")}.${markHint}
+
+Identify the MACRO steps, one per distinct screen or task, NOT one per click. For each step give a "start" time in seconds (use the frame times) and a short imperative "title" (max 6 words).
+
+Return ONLY a JSON array, 3 to 8 items, sorted by start, like:
+[{"start":0,"title":"Open the loan application"},{"start":12.5,"title":"Enter borrower information"}]` });
+    const r = await callClaude({ model:MODEL, max_tokens:700, messages:[{ role:"user", content }] });
+    if(!r.ok){ const e=await r.json().catch(()=>({})); throw new Error(e?.error?.message || `Vision request failed (${r.status})`); }
+    const data = await r.json();
+    const txt = data.content?.[0]?.text || "";
+    let arr; try{ arr=JSON.parse(txt); }catch{ const m=txt.match(/\[[\s\S]*\]/); if(!m) throw new Error("Model didn't return step data."); arr=JSON.parse(m[0]); }
+    arr = arr.filter(s=>typeof s.start==="number").map(s=>({ start:Math.max(0,Math.min(s.start,D)), title:(s.title||"Step").slice(0,60) })).sort((a,b)=>a.start-b.start);
+    const out=[]; for(const s of arr){ if(!out.length || s.start-out[out.length-1].start>1.2) out.push(s); }
+    if(!out.length) throw new Error("No steps detected.");
+    return out;
+  };
+
+  const analyzeRecording = async (url)=>{
+    setAnalyzeErr(""); setAnalyzePct(0);
+    try{
+      setAnalyzeMsg("Loading your recording…"); setAnalyzePct(10);
+      const v = await loadVideo(url);
+      const D = v.duration || 1; setDur(D);
+      const N = Math.max(6, Math.min(12, Math.round(D/4)));
+      const times = Array.from({length:N},(_,i)=> +(0.4 + i*(Math.max(D-0.8,0.4))/(N-1||1)).toFixed(2));
+      setAnalyzeMsg("Sampling frames from the recording…"); setAnalyzePct(35);
+      const small=[]; for(const t of times){ small.push(await captureAt(v,t,480,0.5)); }
+      setAnalyzeMsg("Asking Claude to find the steps…"); setAnalyzePct(60);
+      const proposed = await visionSteps(small, times, D);
+      setAnalyzeMsg("Grabbing a screenshot for each step…"); setAnalyzePct(85);
+      const withThumbs=[];
+      for(let i=0;i<proposed.length;i++){
+        const thumb = await captureAt(v, Math.min(proposed[i].start+0.25, D-0.1), 640, 0.7);
+        withThumbs.push({ id:i+1, title:proposed[i].title, t:proposed[i].start, thumb, conf:0.9 });
+      }
+      setAnalyzePct(100);
+      setSteps(withThumbs); setStage("steps");
+    }catch(err){
+      setAnalyzeErr(err.message || "Auto-detection needed a hand. Here's an even split you can shape.");
+      try{
+        const v = await loadVideo(url); const D=v.duration||1; setDur(D);
+        const k=4, out=[];
+        for(let i=0;i<k;i++){ const t=+(i*D/k).toFixed(2); out.push({ id:i+1, title:`Step ${i+1}`, t, thumb:await captureAt(v,Math.min(t+0.2,D-0.1),640,0.7), conf:1 }); }
+        setSteps(out);
+      }catch{ setSteps([]); }
+      setStage("steps");
+    }
+  };
+
+  const genScripts = async ()=>{
+    setBusy(true); setGenErr("");
+    const list = steps.map((s,i)=>`${i+1}. ${s.title}`).join("\n");
+    const prompt = `You write training narration for Partners Mortgage, for an internal audience. Voice: active verbs, plain language (no jargon), direct "you" statements, short sentences. A little warmer and more human than the marketing site, but never jokey about compliance.
+
+Write one line of narration (1-2 sentences) for each step below. Return ONLY raw JSON, no markdown fences, keyed by step number:
+{"1":"...","2":"..."}
+
+Steps:
+${list}`;
+    try{
+      const r = await callClaude({ model:MODEL, max_tokens:1000, messages:[{role:"user",content:prompt}] });
+      if(!r.ok){
+        const e = await r.json().catch(()=>({}));
+        throw new Error(r.status===401 ? "Proxy rejected the request (gate PIN or Worker key issue)."
+          : r.status===429 ? "Rate limited (429). Wait a moment and retry."
+          : `Request failed (${r.status}). ${e?.error?.message||""}`);
+      }
+      const data = await r.json();
+      const txt = data.content?.[0]?.text || "";
+      let parsed;
+      try{ parsed = JSON.parse(txt); }
+      catch{ const m = txt.match(/\{[\s\S]*\}/); if(!m) throw new Error("Response wasn't valid JSON."); parsed = JSON.parse(m[0]); }
+      setScripts(parsed); setStage("editing");
+    }catch(err){ setGenErr(err.message || "Something went wrong generating scripts."); }
+    finally{ setBusy(false); }
+  };
+
+  const goGenerate = ()=>{ setStage("generating"); setTimeout(()=>setStage("preview"),2500); };
+  const newGuide = ()=>{ setProj({name:"",desc:"",cat:"Pricing"}); setSteps([]); setScripts({}); setGenErr("");
+    setRecUrl(null); setRecBlob(null); setDur(0); setMarks([]); setAnalyzeErr(""); setStage("setup"); };
+
+  const saveToLibrary = async ()=>{
+    const cover = steps.find(s=>s.thumb)?.thumb || "";
+    const entry = { name:proj.name||"Untitled guide", desc:proj.desc||"", cat:proj.cat||"Pricing",
+      steps:steps.length, mins:Math.max(1,Math.round((dur||steps.length*40)/60)), status:"Published",
+      updated:Date.now(), plays:0, pct:0, author:"You", coverFrame:cover };
+    if(FB_ON && db){
+      try{ await db.collection("guides").add(entry); showToast(`"${entry.name}" published to the library.`); }
+      catch{ showToast("Couldn't reach Firestore. Check your config and rules."); }
+    } else {
+      setGuides([{ id:"g-"+Date.now(), ...entry }, ...guides]);
+      showToast(`"${entry.name}" published (local test mode).`);
+    }
+  };
+  const deleteGuide = async (id)=>{
+    if(FB_ON && db){ try{ await db.collection("guides").doc(id).delete(); }catch{ showToast("Delete failed. Check rules."); } }
+    else setGuides(guides.filter(g=>g.id!==id));
+  };
+
+  const FLOW = ["Set up","Record","Steps","Script","Publish"];
+  const stageIndex = { setup:0, recording:1, analyzing:2, steps:2, editing:3, generating:4, preview:4 }[stage];
+  const inFlow = ["setup","recording","analyzing","steps","editing","generating","preview"].includes(stage);
+
+  return (
+    <div style={{minHeight:"100%",display:"flex",flexDirection:"column"}}>
+      <Header stage={stage} setStage={setStage} onRecord={newGuide}/>
+      {inFlow && <FlowStrip steps={FLOW} active={stageIndex} onExit={()=>setStage("library")}/>}
+
+      {stage==="library" && <Library {...{guides,loadingLib,onNew:newGuide,onDelete:deleteGuide,setStage}}/>}
+      {stage==="learn" && <Learn guides={guides}/>}
+      {stage==="settings" && <SettingsScreen {...{apiKey,setApiKey,keyState,setKeyState,keyMsg,testKey}}/>}
+
+      {inFlow && (
+        <main style={{flex:1,width:"100%",maxWidth:1120,margin:"0 auto",padding:"32px 28px 90px"}} key={stage}>
+          {stage==="setup" && <Setup {...{proj,setProj,onNext:startRec}}/>}
+          {stage==="recording" && <RecordStudio {...{onStop:stopRec,marks,setMarks}}/>}
+          {stage==="analyzing" && <Analyzing msg={analyzeMsg} pct={analyzePct}/>}
+          {stage==="steps" && <Steps {...{steps,setSteps,busy,recUrl,dur,analyzeErr,onGen:genScripts,onBack:()=>setStage("setup")}}/>}
+          {stage==="editing" && <Editing {...{steps,scripts,setScripts,genErr,onNext:goGenerate,onBack:()=>setStage("steps")}}/>}
+          {stage==="generating" && <Generating/>}
+          {stage==="preview" && <Published {...{proj,steps,scripts,recUrl,recBlob,dur,guides,showToast,onSave:saveToLibrary,onDone:()=>setStage("library")}}/>}
+        </main>
+      )}
+      {toast && <Toast msg={toast}/>}
+      <style>{`
+        @media(max-width:860px){
+          .hero-grid{grid-template-columns:1fr!important}
+          .feature{grid-template-columns:1fr!important}
+          .pub-grid{grid-template-columns:1fr!important}
+          .flow-nodes{display:none!important}
+          .flow-mini{display:flex!important}
+          .nav-links{display:none!important}
+        }
+      `}</style>
+    </div>
+  );
+}
+
+/* ================= Header ================= */
+function Header({ stage, setStage, onRecord }){
+  const nav=[["Library","library"],["Learn","learn"],["Settings","settings"]];
+  const active = ["library","learn","settings"].includes(stage) ? stage : null;
+  return (
+    <header style={{height:64,background:"#fff",borderBottom:"1px solid var(--sand-200)",display:"flex",alignItems:"center",gap:20,padding:"0 24px",position:"sticky",top:0,zIndex:30}}>
+      <button onClick={()=>setStage("library")} style={{display:"flex",alignItems:"center",gap:11,background:"none",border:"none",cursor:"pointer",padding:0}}>
+        <Mark size={30}/>
+        <span style={{textAlign:"left",lineHeight:1}}>
+          <span className="u" style={{display:"block",fontWeight:900,fontSize:17,letterSpacing:".1em",color:"var(--sand-900)"}}>WAYFINDER</span>
+          <span className="u" style={{display:"block",fontSize:7.5,letterSpacing:".18em",color:"var(--sand-500)",marginTop:2}}>A PARTNERS MORTGAGE TOOL</span>
+        </span>
+      </button>
+      <nav className="nav-links" style={{display:"flex",gap:4,marginLeft:14}}>
+        {nav.map(([label,key])=>(
+          <button key={key} onClick={()=>setStage(key)} className="u"
+            style={{background:active===key?"var(--teal-wash)":"none",color:active===key?"var(--teal-600)":"var(--sand-600)",
+              border:"none",borderRadius:9,padding:"8px 14px",fontSize:12,fontWeight:700,letterSpacing:".08em",cursor:"pointer"}}>{label}</button>
+        ))}
+      </nav>
+      <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:16}}>
+        <span style={{fontFamily:"var(--font-script)",fontStyle:"italic",fontSize:19,color:"var(--teal-500)"}}>You matter.</span>
+        <button onClick={onRecord} className="u" style={{...btn.primary,padding:"10px 16px",fontSize:12}}><IcRecord size={14}/> Record a guide</button>
+        <span style={{width:34,height:34,borderRadius:"50%",background:"var(--teal-900)",color:"#fff",display:"grid",placeItems:"center",fontFamily:"var(--font-display)",fontWeight:700,fontSize:13}}>Yu</span>
+      </div>
+    </header>
+  );
+}
+
+/* ================= Flow strip ================= */
+function FlowStrip({ steps, active, onExit }){
+  return (
+    <div style={{height:62,background:"#fff",borderBottom:"1px solid var(--sand-200)",display:"flex",alignItems:"center",gap:18,padding:"0 24px",position:"sticky",top:64,zIndex:20}}>
+      <button onClick={onExit} className="u" style={{display:"inline-flex",alignItems:"center",gap:6,background:"none",border:"none",color:"var(--sand-600)",fontSize:11,fontWeight:700,letterSpacing:".1em",cursor:"pointer"}}>
+        <IcArrowL size={15}/> Exit
+      </button>
+      <div style={{width:1,height:26,background:"var(--sand-200)"}}/>
+      <div className="flow-nodes" style={{display:"flex",alignItems:"center",gap:0,flex:1,maxWidth:640}}>
+        {steps.map((s,i)=>{
+          const done=i<active, now=i===active;
+          return (
+            <React.Fragment key={i}>
+              <div style={{display:"flex",alignItems:"center",gap:9}}>
+                <div style={{width:24,height:24,borderRadius:"50%",display:"grid",placeItems:"center",flexShrink:0,fontFamily:"var(--font-display)",fontWeight:700,fontSize:11,transition:"all .25s",
+                  background:done?"var(--teal-500)":now?"#fff":"var(--sand-100)",color:done?"#fff":now?"var(--teal-600)":"var(--sand-500)",
+                  border:now?"2px solid var(--teal-500)":"2px solid transparent",boxShadow:now?"0 0 0 4px var(--teal-wash)":"none"}}>
+                  {done?<IcCheck size={13} stroke={3}/>:i+1}
+                </div>
+                <span className="u" style={{fontSize:11,fontWeight:700,letterSpacing:".06em",color:now?"var(--sand-900)":done?"var(--sand-600)":"var(--sand-500)"}}>{s}</span>
+              </div>
+              {i<steps.length-1 && <div style={{flex:1,height:2,margin:"0 12px",background:done?"var(--teal-500)":"var(--sand-200)",minWidth:16}}/>}
+            </React.Fragment>
+          );
+        })}
+      </div>
+      <div className="flow-mini" style={{display:"none",alignItems:"center",gap:10,flex:1}}>
+        <span className="u" style={{fontSize:12,fontWeight:700,letterSpacing:".06em",color:"var(--sand-900)"}}>Step {active+1} of {steps.length}</span>
+        <div style={{flex:1,height:5,borderRadius:5,background:"var(--sand-200)",overflow:"hidden"}}><div style={{width:`${(active+1)/steps.length*100}%`,height:"100%",background:"var(--teal-500)"}}/></div>
+      </div>
+    </div>
+  );
+}
+
+/* ================= Cover ================= */
+function Cover({ title, status, mins, frame, size="card" }){
+  const titleSize = size==="feature"?20:size==="share"?40:15;
+  const pad = size==="share"?"0 34px 26px":size==="feature"?"0 22px 18px":"0 16px 14px";
+  return (
+    <div style={{position:"relative",aspectRatio:"16/9",width:"100%",overflow:"hidden",borderRadius:size==="card"?"14px 14px 0 0":14,background:"var(--teal-900)",display:"flex",flexDirection:"column",justifyContent:"flex-end"}}>
+      {frame && <img src={frame} alt="" style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover"}}/>}
+      <div style={{position:"absolute",inset:0,background:"linear-gradient(150deg, rgba(0,129,141,.5) 0%, rgba(6,47,52,.15) 60%)"}}/>
+      <div style={{position:"absolute",inset:0,backgroundImage:`url("data:image/svg+xml,${ROOF}")`,backgroundSize:"72px 72px"}}/>
+      <div style={{position:"relative",padding:pad}}>
+        <div style={{width:32,height:4,borderRadius:4,background:"var(--amber-500)",marginBottom:size==="share"?16:10}}/>
+        <div className="u" style={{fontWeight:900,color:"#fff",fontSize:titleSize,lineHeight:1.12,letterSpacing:".01em",textShadow:frame?"0 1px 10px rgba(0,0,0,.4)":"none"}}>{title||"UNTITLED GUIDE"}</div>
+      </div>
+      {status && <span className="u" style={{position:"absolute",top:12,right:12,fontSize:9.5,fontWeight:800,letterSpacing:".08em",padding:"4px 9px",borderRadius:100,
+        background:status==="Published"?"var(--amber-500)":"rgba(255,255,255,.92)",color:status==="Published"?"var(--sand-900)":"var(--sand-800)"}}>{status}</span>}
+      {mins!=null && <span className="num" style={{position:"absolute",bottom:12,right:12,fontSize:11,fontWeight:600,padding:"3px 8px",borderRadius:100,background:"rgba(6,47,52,.7)",color:"#fff"}}>{mins} min</span>}
+    </div>
+  );
+}
+
+/* ================= Library ================= */
+function Library({ guides, loadingLib, onNew, onDelete, setStage }){
+  const [q,setQ] = useState("");
+  const [cat,setCat] = useState("All");
+  const [sort,setSort] = useState("Newest");
+  const published = guides.filter(g=>g.status==="Published");
+  const totalPlays = guides.reduce((a,g)=>a+(g.plays||0),0);
+  const authors = new Set(guides.map(g=>g.author).filter(Boolean)).size || 1;
+  const avgMin = guides.reduce((a,g)=>a+(g.mins||4),0)/(guides.length||1);
+  const hoursSaved = Math.round(totalPlays*avgMin/60);
+
+  let list = guides.filter(g=>{
+    const hay=((g.name||"")+(g.desc||"")+(g.author||"")+(g.cat||"")).toLowerCase();
+    return hay.includes(q.toLowerCase()) && (cat==="All"||g.cat===cat);
+  });
+  if(sort==="Most watched") list=[...list].sort((a,b)=>(b.plays||0)-(a.plays||0));
+  else if(sort==="A–Z") list=[...list].sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+  else list=[...list].sort((a,b)=>(b.updated||0)-(a.updated||0));
+
+  const featured = published.slice().sort((a,b)=>(b.plays||0)-(a.plays||0))[0];
+
+  return (
+    <div style={{animation:"fadeUp .4s ease"}}>
+      <div style={{background:"var(--teal-900)",position:"relative",overflow:"hidden"}}>
+        <div style={{position:"absolute",inset:0,backgroundImage:`url("data:image/svg+xml,${ROOF}")`,backgroundSize:"72px 72px",opacity:.5}}/>
+        <div className="hero-grid" style={{position:"relative",maxWidth:1120,margin:"0 auto",padding:"46px 28px",display:"grid",gridTemplateColumns:"1.5fr 1fr",gap:36,alignItems:"center"}}>
+          <div>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}>
+              <span style={{width:7,height:7,borderRadius:"50%",background:"var(--amber-500)"}}/>
+              <span className="u" style={{fontSize:11,fontWeight:700,letterSpacing:".18em",color:"var(--sand-300)"}}>TRAINING LIBRARY</span>
+            </div>
+            <h1 className="u" style={{fontWeight:900,fontSize:"clamp(34px,5vw,50px)",lineHeight:1.02,letterSpacing:".01em",color:"#fff",marginBottom:16}}>SHOW SOMEONE<br/>HOW IT'S DONE</h1>
+            <p style={{fontSize:16,color:"var(--sand-300)",maxWidth:440,marginBottom:26}}>Record a workflow once. Claude finds the steps, writes the narration, and it lands in the shared library for the whole team.</p>
+            <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+              <button onClick={onNew} className="u" style={{...btn.amber,padding:"13px 22px"}}><IcRecord size={16}/> Start recording</button>
+              <button onClick={()=>setStage("learn")} className="u" style={{...btn.outlineDark,padding:"13px 22px"}}><IcEye size={16}/> Browse as a learner</button>
+            </div>
+          </div>
+          <div style={{background:"rgba(255,255,255,.06)",border:"1px solid rgba(255,255,255,.12)",borderRadius:18,padding:"22px 24px",backdropFilter:"blur(4px)"}}>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"18px 14px"}}>
+              <Stat n={published.length} label="Guides live"/>
+              <Stat n={totalPlays} label="Views"/>
+              <Stat n={hoursSaved+"h"} label="Shadowing saved"/>
+              <Stat n={authors} label="Authors"/>
+            </div>
+            <div style={{marginTop:18,paddingTop:16,borderTop:"1px solid rgba(255,255,255,.12)",fontSize:13,color:"var(--sand-300)"}}>
+              You're <span style={{color:"var(--amber-500)",fontWeight:600}}>two guides</span> from the Trailblazer badge.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{maxWidth:1120,margin:"0 auto",padding:"28px 28px 90px"}}>
+        <div style={{display:"flex",gap:12,alignItems:"center",flexWrap:"wrap",marginBottom:22}}>
+          <div style={{position:"relative",flex:"1 1 240px",maxWidth:340}}>
+            <span style={{position:"absolute",left:13,top:"50%",transform:"translateY(-50%)",color:"var(--sand-500)"}}><IcSearch size={17}/></span>
+            <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search guides, authors, topics" style={{...inp,paddingLeft:38}}/>
+          </div>
+          <select value={sort} onChange={e=>setSort(e.target.value)} className="u" style={{...inp,width:"auto",fontSize:11,fontWeight:700,letterSpacing:".06em",cursor:"pointer"}}>
+            {["Newest","Most watched","A–Z"].map(s=><option key={s}>{s}</option>)}
+          </select>
+        </div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:26}}>
+          {["All",...CATS].map(c=>(
+            <button key={c} onClick={()=>setCat(c)} className="u" style={{fontSize:11,fontWeight:700,letterSpacing:".06em",padding:"7px 13px",borderRadius:100,cursor:"pointer",
+              border:`1px solid ${cat===c?"var(--teal-500)":"var(--sand-200)"}`,background:cat===c?"var(--teal-500)":"#fff",color:cat===c?"#fff":"var(--sand-600)"}}>{c}</button>
+          ))}
+        </div>
+
+        {featured && cat==="All" && !q && (
+          <div style={{marginBottom:30}}>
+            <div className="u" style={{fontSize:11,fontWeight:700,letterSpacing:".14em",color:"var(--sand-500)",marginBottom:12}}>FEATURED THIS WEEK</div>
+            <div className="feature" style={{display:"grid",gridTemplateColumns:"300px 1fr",background:"#fff",border:"1px solid var(--sand-200)",borderRadius:16,overflow:"hidden",boxShadow:"var(--shadow-card)"}}>
+              <Cover title={featured.name} status={featured.status} mins={featured.mins} frame={featured.coverFrame} size="feature"/>
+              <div style={{padding:"22px 24px",display:"flex",flexDirection:"column"}}>
+                <span className="u" style={{fontSize:10,fontWeight:700,letterSpacing:".1em",color:"var(--teal-500)",marginBottom:8}}>{featured.cat}</span>
+                <div className="u" style={{fontWeight:800,fontSize:19,letterSpacing:".01em",color:"var(--sand-900)",marginBottom:8}}>{featured.name}</div>
+                <p style={{fontSize:14.5,color:"var(--sand-600)",marginBottom:16,flex:1}}>{featured.desc}</p>
+                <div style={{display:"flex",alignItems:"center",gap:16,fontSize:12.5,color:"var(--sand-500)",marginBottom:18}}>
+                  <span className="num">{featured.steps} steps</span><span className="num">{featured.mins} min</span><span>{featured.author}</span>
+                </div>
+                <div style={{display:"flex",gap:10}}>
+                  <button className="u" style={{...btn.primary,padding:"10px 18px",fontSize:12}}><IcPlay size={14}/> Watch it</button>
+                  <button className="u" style={{...btn.ghost,padding:"10px 18px",fontSize:12}}><IcLink size={14}/> Share</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {loadingLib ? <div style={{textAlign:"center",padding:60,color:"var(--sand-500)"}}><Spinner/></div> :
+         list.length===0 ? (
+          <div style={{border:"1.5px dashed var(--sand-300)",borderRadius:16,padding:"56px 24px",textAlign:"center"}}>
+            <div className="u" style={{fontWeight:800,fontSize:18,letterSpacing:".04em",marginBottom:6,color:"var(--sand-800)"}}>NOTHING MATCHES THAT</div>
+            <div style={{fontSize:14,color:"var(--sand-600)"}}>Try a different search or category.</div>
+          </div>
+         ) : (
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(290px,1fr))",gap:18}}>
+            {list.map(g=>(
+              <div key={g.id} style={{background:"#fff",border:"1px solid var(--sand-200)",borderRadius:16,overflow:"hidden",boxShadow:"var(--shadow-card)",transition:"transform .18s,box-shadow .18s",display:"flex",flexDirection:"column"}}
+                onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow="0 10px 26px rgba(36,31,29,.10)";}}
+                onMouseLeave={e=>{e.currentTarget.style.transform="none";e.currentTarget.style.boxShadow="var(--shadow-card)";}}>
+                <Cover title={g.name} status={g.status} mins={g.mins} frame={g.coverFrame}/>
+                <div style={{padding:"14px 16px 16px",flex:1,display:"flex",flexDirection:"column"}}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:9}}>
+                    <span className="u" style={{fontSize:9.5,fontWeight:700,letterSpacing:".08em",color:"var(--teal-500)",background:"var(--teal-wash)",padding:"3px 8px",borderRadius:100}}>{g.cat||"General"}</span>
+                    <span style={{fontSize:11.5,color:"var(--sand-500)"}}>{timeAgo(g.updated)}</span>
+                  </div>
+                  <p style={{fontSize:14,color:"var(--sand-800)",lineHeight:1.5,marginBottom:14,flex:1}}>{g.desc||"No description."}</p>
+                  <div style={{marginBottom:12}}>
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"var(--sand-500)",marginBottom:4}}>
+                      <span className="u" style={{letterSpacing:".06em",fontWeight:700}}>Team completion</span><span className="num">{g.pct||0}%</span>
+                    </div>
+                    <div style={{height:6,borderRadius:6,background:"var(--sand-100)",overflow:"hidden"}}>
+                      <div style={{width:`${g.pct||0}%`,height:"100%",background:(g.pct||0)>=80?"var(--pm-green)":"var(--teal-500)"}}/>
+                    </div>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",fontSize:12,color:"var(--sand-500)"}}>
+                    <span style={{display:"flex",gap:12}}>
+                      <span className="num" style={{display:"inline-flex",alignItems:"center",gap:5}}><IcDoc size={13}/>{g.steps}</span>
+                      <span className="num" style={{display:"inline-flex",alignItems:"center",gap:5}}><IcEye size={13}/>{g.plays||0}</span>
+                    </span>
+                    <span style={{display:"flex",gap:4}}>
+                      <button title="Open" style={iconBtn()}><IcPlay size={14}/></button>
+                      <button title="Delete" onClick={()=>onDelete(g.id)} style={iconBtn(false,true)}><IcTrash size={14}/></button>
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ))}
+            <button onClick={onNew} style={{border:"1.5px dashed var(--sand-300)",borderRadius:16,background:"transparent",cursor:"pointer",padding:"28px 20px",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12,minHeight:220,transition:"all .18s"}}
+              onMouseEnter={e=>{e.currentTarget.style.borderColor="var(--teal-500)";e.currentTarget.style.background="var(--teal-wash)";}}
+              onMouseLeave={e=>{e.currentTarget.style.borderColor="var(--sand-300)";e.currentTarget.style.background="transparent";}}>
+              <span style={{width:46,height:46,borderRadius:12,background:"var(--teal-500)",color:"#fff",display:"grid",placeItems:"center"}}><IcPlus size={22}/></span>
+              <span className="u" style={{fontWeight:800,fontSize:14,letterSpacing:".03em",color:"var(--sand-800)"}}>RECORD A GUIDE</span>
+              <span style={{fontSize:13,color:"var(--sand-600)",textAlign:"center",maxWidth:220}}>Something you explain more than twice? Record it once.</span>
+            </button>
+          </div>
+         )}
+      </div>
+    </div>
+  );
+}
+function Stat({ n, label }){
+  return (
+    <div>
+      <div className="num" style={{fontSize:28,fontWeight:800,color:"var(--amber-500)",lineHeight:1}}>{n}</div>
+      <div className="u" style={{fontSize:10,fontWeight:700,letterSpacing:".1em",color:"var(--sand-300)",marginTop:5}}>{label}</div>
+    </div>
+  );
+}
+
+/* ================= Setup ================= */
+function Setup({ proj,setProj,onNext }){
+  const can = proj.name.trim();
+  return (
+    <div style={{maxWidth:640,animation:"fadeUp .35s ease"}}>
+      <Eyebrow>STEP 1 OF 5 · ABOUT 30 SECONDS</Eyebrow>
+      <H2>WHAT ARE YOU TEACHING?</H2>
+      <div style={{background:"#fff",border:"1px solid var(--sand-200)",borderRadius:"var(--radius-card)",padding:"22px 22px 24px",boxShadow:"var(--shadow-card)",marginTop:18}}>
+        <Field label="Guide title">
+          <input value={proj.name} onChange={e=>setProj({...proj,name:e.target.value})} placeholder="How to price a loan in Lender Price" style={inp}/>
+        </Field>
+        <Field label="One-line promise" optional>
+          <input value={proj.desc} onChange={e=>setProj({...proj,desc:e.target.value})} placeholder="What can a teammate do after watching?" style={inp}/>
+        </Field>
+        <div style={{marginTop:4}}>
+          <label className="u" style={{fontSize:11,fontWeight:700,letterSpacing:".08em",color:"var(--sand-600)",display:"block",marginBottom:9}}>Category</label>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            {CATS.map(c=>(
+              <button key={c} onClick={()=>setProj({...proj,cat:c})} className="u" style={{fontSize:11,fontWeight:700,letterSpacing:".05em",padding:"7px 13px",borderRadius:100,cursor:"pointer",
+                border:`1px solid ${proj.cat===c?"var(--teal-500)":"var(--sand-200)"}`,background:proj.cat===c?"var(--teal-500)":"#fff",color:proj.cat===c?"#fff":"var(--sand-600)"}}>{c}</button>
+            ))}
+          </div>
+        </div>
+      </div>
+      <div style={{display:"flex",gap:12,alignItems:"center",background:"var(--teal-wash)",border:"1px solid #cfe6e8",borderRadius:12,padding:"14px 16px",marginTop:16,fontSize:13.5,color:"var(--teal-800)"}}>
+        <span style={{flexShrink:0,color:"var(--teal-500)"}}><IcMonitor size={20}/></span>
+        <span>Your browser will ask which window to share. Nothing leaves this machine until you publish, so feel free to flub the first take.</span>
+      </div>
+      <button onClick={onNext} disabled={!can} className="u" style={{...btn.primary,marginTop:22,opacity:can?1:.5,cursor:can?"pointer":"not-allowed",background:can?"var(--teal-500)":"var(--sand-300)"}}>
+        <IcRecord size={16}/> Start recording
+      </button>
+      {!can && <span style={{fontSize:13,color:"var(--sand-500)",marginLeft:14}}>Give it a title first. Future you will thank present you.</span>}
+    </div>
+  );
+}
+
+/* ================= Recording studio ================= */
+function RecordStudio({ onStop, marks, setMarks }){
+  const [t,setT] = useState(0);
+  const startRef = useRef(Date.now());
+  useEffect(()=>{ const id=setInterval(()=>setT((Date.now()-startRef.current)/1000),200); return ()=>clearInterval(id); },[]);
+  const mark = ()=> setMarks(m=>[...m, +((Date.now()-startRef.current)/1000).toFixed(1)]);
+  useEffect(()=>{
+    const h=(e)=>{ if(e.key==="m"||e.key==="M"){ e.preventDefault(); mark(); } };
+    window.addEventListener("keydown",h); return ()=>window.removeEventListener("keydown",h);
+  },[]);
+  const mm=String(Math.floor(t/60)).padStart(2,"0"), ss=String(Math.floor(t%60)).padStart(2,"0");
+  return (
+    <div style={{maxWidth:820,animation:"fadeUp .35s ease"}}>
+      <Eyebrow>STEP 2 OF 5</Eyebrow>
+      <H2>YOU'RE ON THE AIR</H2>
+      <div style={{background:"var(--teal-900)",borderRadius:20,padding:"36px 32px",boxShadow:"var(--shadow-dark)",position:"relative",overflow:"hidden",marginTop:18}}>
+        <div style={{position:"absolute",inset:0,backgroundImage:`url("data:image/svg+xml,${ROOF}")`,backgroundSize:"72px 72px",opacity:.4}}/>
+        <div style={{position:"relative"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:22}}>
+            <span style={{width:11,height:11,borderRadius:"50%",background:"var(--pm-coral)",animation:"pulseDot 1.1s infinite"}}/>
+            <span className="u" style={{fontSize:11,fontWeight:800,letterSpacing:".16em",color:"#fff"}}>ON THE AIR</span>
+          </div>
+          <div className="num" style={{fontSize:76,fontWeight:900,color:"#fff",lineHeight:1,letterSpacing:".02em"}}>{mm}:{ss}</div>
+          <div style={{display:"flex",gap:3,alignItems:"flex-end",height:40,margin:"24px 0"}}>
+            {Array.from({length:60}).map((_,i)=>{
+              const h = 8 + Math.abs(Math.sin((i*0.5)+(t*3)))*30;
+              return <span key={i} style={{flex:1,height:h,borderRadius:2,background:"rgba(255,255,255,.28)"}}/>;
+            })}
+          </div>
+          <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"center"}}>
+            <button onClick={mark} className="u" style={{...btn.outlineDark,padding:"12px 18px"}}><IcFlag size={16}/> Mark a step <kbd style={{marginLeft:6,fontFamily:"var(--font-display)",fontSize:10,padding:"2px 6px",borderRadius:5,background:"rgba(255,255,255,.16)"}}>M</kbd></button>
+            <button onClick={onStop} className="u" style={{...btn.coral,padding:"12px 20px"}}><IcStop size={16}/> Stop & review</button>
+          </div>
+          {marks.length>0 && (
+            <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:20}}>
+              {marks.map((m,i)=>(
+                <span key={i} className="num" style={{fontSize:12,color:"#fff",background:"rgba(255,255,255,.1)",border:"1px solid rgba(255,255,255,.16)",borderRadius:100,padding:"5px 11px"}}>
+                  <span className="u" style={{fontWeight:700,letterSpacing:".05em",marginRight:6}}>Step {i+2}</span>{fmt(m)}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+      <p style={{fontSize:13.5,color:"var(--sand-600)",marginTop:16}}>Tap <b>M</b> each time you start a new step. Those marks help Claude cut the steps more accurately, and you can still fix everything on the next screen.</p>
+    </div>
+  );
+}
+
+/* ================= Analyzing ================= */
+function Analyzing({ msg, pct }){
+  return (
+    <div style={{maxWidth:560,animation:"fadeUp .35s ease"}}>
+      <Eyebrow>STEP 3 OF 5</Eyebrow>
+      <H2>FINDING YOUR STEPS</H2>
+      <div style={{background:"#fff",border:"1px solid var(--sand-200)",borderRadius:"var(--radius-card)",padding:"30px 26px",textAlign:"center",boxShadow:"var(--shadow-card)",marginTop:18}}>
+        <div style={{display:"inline-flex",marginBottom:18,color:"var(--teal-500)"}}><Spinner big/></div>
+        <div aria-live="polite" style={{fontSize:15,fontFamily:"var(--font-body)",color:"var(--sand-800)",marginBottom:18}}>{msg||"Working…"}</div>
+        <div style={{height:8,borderRadius:8,background:"var(--sand-100)",overflow:"hidden",maxWidth:320,margin:"0 auto"}}>
+          <div style={{width:`${pct}%`,height:"100%",background:"var(--teal-500)",transition:"width .4s ease"}}/>
+        </div>
+        <div style={{fontSize:13,color:"var(--sand-500)",marginTop:16}}>Usually about ten seconds. Stretch your legs.</div>
+      </div>
+    </div>
+  );
+}
+
+/* ================= Steps (filmstrip) ================= */
+function Steps({ steps,setSteps,busy,recUrl,dur,analyzeErr,onGen,onBack }){
+  const [editId,setEditId]=useState(null);
+  const [draft,setDraft]=useState("");
+  const [dragId,setDragId]=useState(null);
+  const [overId,setOverId]=useState(null);
+  const [splitId,setSplitId]=useState(null);
+  const [splitT,setSplitT]=useState(0);
+  const [splitThumb,setSplitThumb]=useState("");
+  const vidRef=useRef(null);
+
+  useEffect(()=>{ if(!recUrl) return; const v=document.createElement("video"); v.src=recUrl; v.muted=true; v.playsInline=true; v.preload="auto"; vidRef.current=v; },[recUrl]);
+  const capture=(t,w=640,q=0.7)=> new Promise((res)=>{ const v=vidRef.current; if(!v){res("");return;}
+    const on=()=>{ v.removeEventListener("seeked",on); const scale=w/(v.videoWidth||w),h=Math.round((v.videoHeight||w)*scale);
+      const c=document.createElement("canvas"); c.width=w; c.height=h||360; try{ c.getContext("2d").drawImage(v,0,0,c.width,c.height); res(c.toDataURL("image/jpeg",q)); }catch{ res(""); } };
+    v.addEventListener("seeked",on); v.currentTime=Math.max(0,Math.min(t,(v.duration||t)-0.05)); });
+
+  const beginEdit=(s)=>{ setEditId(s.id); setDraft(s.title); };
+  const commit=()=>{ setSteps(prev=>prev.map(s=>s.id===editId?{...s,title:draft.trim()||s.title}:s)); setEditId(null); };
+  const remove=(id)=> setSteps(steps.filter(s=>s.id!==id));
+  const onDrop=(targetId)=>{ if(dragId==null||dragId===targetId){ setDragId(null); setOverId(null); return; }
+    const arr=[...steps]; const from=arr.findIndex(s=>s.id===dragId), to=arr.findIndex(s=>s.id===targetId);
+    const [m]=arr.splice(from,1); arr.splice(to,0,m); setSteps(arr); setDragId(null); setOverId(null); };
+  const openSplit=async(s,i)=>{ const next=steps[i+1]; const hi=next?next.t:(dur||s.t+8); const mid=+((s.t+hi)/2).toFixed(1); setSplitId(s.id); setSplitT(mid); setSplitThumb(await capture(mid)); };
+  const previewSplit=async(val)=>{ setSplitT(val); setSplitThumb(await capture(val)); };
+  const confirmSplit=async()=>{ const i=steps.findIndex(s=>s.id===splitId); const thumb=splitThumb||await capture(splitT);
+    const ns={ id:Math.max(0,...steps.map(s=>s.id))+1, title:"New step", t:splitT, thumb, conf:1 };
+    const arr=[...steps]; arr.splice(i+1,0,ns); setSteps(arr); setSplitId(null); setSplitThumb(""); setEditId(ns.id); setDraft("New step"); };
+
+  return (
+    <div style={{animation:"fadeUp .35s ease"}}>
+      <Eyebrow>STEP 3 OF 5</Eyebrow>
+      <H2>CONFIRM YOUR STEPS</H2>
+      <p style={{fontSize:15,color:"var(--sand-600)",marginTop:8,marginBottom:analyzeErr?14:22,maxWidth:600}}>Claude proposed {steps.length} steps from your recording. Rename, reorder, split, or delete until it reads right.</p>
+      {analyzeErr && <div style={{display:"flex",gap:10,padding:"12px 14px",borderRadius:11,marginBottom:20,background:"var(--amber-wash)",color:"#9a6b1e",fontSize:13.5,alignItems:"flex-start"}}><span style={{marginTop:1}}><IcFlag size={16}/></span><span>{analyzeErr}</span></div>}
+
+      <div style={{display:"flex",gap:14,overflowX:"auto",paddingBottom:14}}>
+        {steps.map((s,i)=>{
+          const over=overId===s.id&&dragId!==s.id, dragging=dragId===s.id;
+          return (
+            <div key={s.id} draggable={editId!==s.id}
+              onDragStart={()=>setDragId(s.id)} onDragEnd={()=>{setDragId(null);setOverId(null);}}
+              onDragOver={e=>{e.preventDefault();setOverId(s.id);}} onDrop={()=>onDrop(s.id)}
+              style={{width:232,flexShrink:0,background:"#fff",border:`1px solid ${over?"var(--teal-500)":"var(--sand-200)"}`,borderRadius:14,overflow:"hidden",boxShadow:over?"0 0 0 3px var(--teal-wash)":"var(--shadow-card)",opacity:dragging?.4:1,transition:"all .15s"}}>
+              <div style={{position:"relative",aspectRatio:"16/10",background:"var(--teal-900)"}}>
+                {s.thumb && <img src={s.thumb} alt={`Step ${i+1}: ${s.title}`} style={{width:"100%",height:"100%",objectFit:"cover"}}/>}
+                <span className="num" style={{position:"absolute",top:8,left:8,fontSize:22,fontWeight:900,color:"rgba(255,255,255,.85)",textShadow:"0 1px 6px rgba(0,0,0,.4)"}}>{String(i+1).padStart(2,"0")}</span>
+                <span className="num" style={{position:"absolute",bottom:8,right:8,fontSize:11,color:"#fff",background:"rgba(6,47,52,.72)",borderRadius:100,padding:"2px 7px"}}>{fmt(s.t)}</span>
+                <span style={{position:"absolute",top:8,right:8,color:"rgba(255,255,255,.7)",cursor:"grab"}}><IcGrip size={16}/></span>
+              </div>
+              <div style={{padding:"10px 11px 11px"}}>
+                {editId===s.id ? (
+                  <input autoFocus value={draft} onChange={e=>setDraft(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")commit();if(e.key==="Escape")setEditId(null);}} onBlur={commit}
+                    className="u" style={{...inp,padding:"6px 8px",fontSize:12,fontWeight:700,letterSpacing:".03em"}}/>
+                ) : (
+                  <div className="u" onClick={()=>beginEdit(s)} title="Click to rename" style={{fontWeight:700,fontSize:12,letterSpacing:".03em",color:"var(--sand-900)",lineHeight:1.3,minHeight:31,cursor:"text"}}>{s.title}</div>
+                )}
+                <div style={{display:"flex",gap:5,marginTop:9}}>
+                  <button onClick={()=>beginEdit(s)} style={iconBtnSm()} title="Rename"><IcEdit size={14}/></button>
+                  {recUrl && <button onClick={()=>openSplit(s,i)} style={iconBtnSm()} title="Split"><IcScissors size={14}/></button>}
+                  <button onClick={()=>remove(s.id)} style={iconBtnSm(true)} title="Delete"><IcTrash size={14}/></button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {dur>0 && (
+        <div style={{position:"relative",height:34,margin:"10px 2px 0",borderTop:"2px solid var(--sand-200)"}}>
+          {steps.map((s)=>(
+            <div key={s.id} style={{position:"absolute",top:-2,left:`${Math.min(100,(s.t/dur)*100)}%`}}>
+              <div style={{width:2,height:12,background:"var(--teal-500)"}}/>
+              <div className="num" style={{fontSize:10,color:"var(--sand-500)",marginTop:2,transform:"translateX(-50%)"}}>{fmt(s.t)}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {splitId!=null && (()=>{ const i=steps.findIndex(s=>s.id===splitId); const s=steps[i]; const hi=steps[i+1]?steps[i+1].t:(dur||s.t+8);
+        return (
+          <div style={{border:"1px solid var(--teal-500)",borderRadius:14,background:"var(--teal-wash)",padding:"16px 18px",marginTop:18,maxWidth:520}}>
+            <div className="u" style={{fontSize:12,fontWeight:700,letterSpacing:".06em",color:"var(--teal-600)",marginBottom:12}}>PICK WHERE THE NEW STEP BEGINS</div>
+            <div style={{display:"flex",gap:14,alignItems:"center"}}>
+              <div style={{width:150,height:86,borderRadius:8,overflow:"hidden",flexShrink:0,border:"1px solid var(--sand-200)",background:"var(--teal-900)"}}>{splitThumb && <img src={splitThumb} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>}</div>
+              <div style={{flex:1}}>
+                <input type="range" min={s.t} max={hi} step="0.5" value={splitT} onChange={e=>previewSplit(parseFloat(e.target.value))} style={{width:"100%",accentColor:"var(--teal-500)"}}/>
+                <div className="num" style={{fontSize:12,color:"var(--sand-600)",marginTop:4}}>New step at {fmt(splitT)}</div>
+                <div style={{display:"flex",gap:8,marginTop:10}}>
+                  <button onClick={confirmSplit} className="u" style={{...btn.primary,padding:"8px 14px",fontSize:11}}>Split here</button>
+                  <button onClick={()=>{setSplitId(null);setSplitThumb("");}} className="u" style={{...btn.ghost,padding:"8px 14px",fontSize:11}}>Cancel</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        ); })()}
+
+      <div style={{display:"flex",gap:12,marginTop:30,flexWrap:"wrap"}}>
+        <button onClick={onGen} disabled={!steps.length||busy} className="u" style={{...btn.primary,opacity:steps.length&&!busy?1:.5}}>
+          {busy?<><Spinner/> Writing…</>:<><IcSpark size={16}/> Write the narration</>}
+        </button>
+        <button onClick={onBack} className="u" style={btn.ghost}><IcArrowL size={15}/> Back</button>
+      </div>
+    </div>
+  );
+}
+
+/* ================= Editing (script) ================= */
+function Editing({ steps,scripts,setScripts,genErr,onNext,onBack }){
+  const set=(id,v)=> setScripts({...scripts,[id]:v});
+  return (
+    <div style={{maxWidth:820,animation:"fadeUp .35s ease"}}>
+      <Eyebrow>STEP 4 OF 5</Eyebrow>
+      <H2>SOUND LIKE YOURSELF</H2>
+      <p style={{fontSize:15,color:"var(--sand-600)",marginTop:8,marginBottom:22,maxWidth:600}}>Claude drafted these in the Partners voice. Tune anything that doesn't sound like you. Two sentences beats five.</p>
+      {genErr && <div style={{display:"flex",gap:10,padding:"12px 14px",borderRadius:11,marginBottom:18,background:"#FBEDEA",color:"var(--pm-coral)",fontSize:13.5}}><IcX size={16}/><span>{genErr}</span></div>}
+      <div style={{display:"flex",flexDirection:"column",gap:14}}>
+        {steps.map((s)=>{
+          const v=scripts[s.id]??scripts[String(s.id)]??""; const len=v.length;
+          const tone=len===0?"var(--sand-500)":len<=140?"var(--pm-green)":len<=220?"var(--amber-600)":"var(--pm-coral)";
+          return (
+            <div key={s.id} style={{background:"#fff",border:"1px solid var(--sand-200)",borderRadius:14,padding:"14px 16px",boxShadow:"var(--shadow-card)"}}>
+              <div style={{display:"flex",gap:12,alignItems:"center",marginBottom:11}}>
+                {s.thumb && <div style={{width:76,height:46,borderRadius:8,overflow:"hidden",flexShrink:0,border:"1px solid var(--sand-200)"}}><img src={s.thumb} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/></div>}
+                <div>
+                  <span className="num" style={{fontSize:11,color:"var(--sand-500)"}}>{fmt(s.t)}</span>
+                  <div className="u" style={{fontWeight:700,fontSize:13,letterSpacing:".03em",color:"var(--sand-900)"}}>{s.title}</div>
+                </div>
+              </div>
+              <textarea value={v} onChange={e=>set(s.id,e.target.value)} rows={2} style={{...inp,fontFamily:"var(--font-body)",fontSize:15,lineHeight:1.6}}/>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginTop:6,color:tone}}>
+                <span>Two sentences beats five.</span><span className="num">{len}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{display:"flex",gap:12,marginTop:28,flexWrap:"wrap"}}>
+        <button onClick={onNext} className="u" style={btn.primary}><IcVideo size={16}/> Build the guide</button>
+        <button onClick={onBack} className="u" style={btn.ghost}><IcArrowL size={15}/> Back to steps</button>
+      </div>
+    </div>
+  );
+}
+
+/* ================= Generating ================= */
+function Generating(){
+  const items=["Composing the video","Rendering the narration","Formatting the written guide","Applying Partners branding"];
+  const [done,setDone]=useState(0);
+  useEffect(()=>{ const id=setInterval(()=>setDone(d=>Math.min(d+1,items.length)),620); return ()=>clearInterval(id); },[]);
+  return (
+    <div style={{maxWidth:560,animation:"fadeUp .35s ease"}}>
+      <Eyebrow>STEP 5 OF 5</Eyebrow>
+      <H2>BUILDING YOUR GUIDE</H2>
+      <div style={{background:"#fff",border:"1px solid var(--sand-200)",borderRadius:"var(--radius-card)",padding:8,marginTop:18,boxShadow:"var(--shadow-card)"}}>
+        {items.map((it,i)=>(
+          <div key={i} style={{display:"flex",alignItems:"center",gap:12,padding:14,borderBottom:i<items.length-1?"1px solid var(--sand-100)":"none"}}>
+            <div style={{width:22,height:22,borderRadius:"50%",display:"grid",placeItems:"center",flexShrink:0,background:i<done?"var(--teal-500)":"transparent",color:"#fff",border:i<done?"none":"2px solid var(--sand-200)"}}>
+              {i<done?<IcCheck size={13} stroke={3}/>:i===done?<Spinner sm/>:null}
+            </div>
+            <span style={{fontSize:15,color:i<=done?"var(--sand-900)":"var(--sand-500)"}}>{it}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ================= Published (reward) ================= */
+function Published({ proj,steps,scripts,recUrl,recBlob,dur,guides,showToast,onSave,onDone }){
+  const [saved,setSaved]=useState(false);
+  const [copied,setCopied]=useState(false);
+  const [vidState,setVidState]=useState("idle"); // idle | rendering | done | error
+  const [vidUrl,setVidUrl]=useState("");
+  const [vidMsg,setVidMsg]=useState("");
+  useEffect(()=>{ if(!saved){ onSave(); setSaved(true); } },[]);
+  const mins=Math.max(1,Math.round((dur||steps.length*40)/60));
+  const myCount=(guides.filter(g=>g.author==="You").length)+1;
+  const downloadRaw=()=>{ if(!recBlob)return; const a=document.createElement("a"); a.href=URL.createObjectURL(recBlob); a.download=`${(proj.name||"recording").replace(/[^a-z0-9-_]+/gi,"-").toLowerCase()}.webm`; a.click(); };
+  const copyLink=()=>{ try{ navigator.clipboard.writeText("https://wayfinder.partnersmortgage.com/g/"+Date.now().toString(36)); }catch{} setCopied(true); setTimeout(()=>setCopied(false),2000); };
+  const [vidPhase,setVidPhase]=useState("");   // "waking" | "rendering"
+  const [vidPct,setVidPct]=useState(0);
+  const timers=useRef([]);
+  const phaseRef=useRef("waking");
+  const clearTimers=()=>{ timers.current.forEach(clearTimeout); timers.current=[]; };
+  useEffect(()=>()=>clearTimers(),[]);
+  const makeVideo=async()=>{
+    if(!PROXY){ showToast("Set PROXY_URL first."); return; }
+    clearTimers();
+    const started=Date.now();
+    phaseRef.current="waking";
+    setVidState("rendering"); setVidPhase("waking"); setVidPct(4);
+    setVidMsg("Waking the video engine. If it has been idle it can take up to a minute to start.");
+    const tick=()=>{
+      const secs=(Date.now()-started)/1000;
+      if(secs>8 && phaseRef.current!=="rendering"){
+        phaseRef.current="rendering"; setVidPhase("rendering");
+        setVidMsg("Rendering your narrated video. Almost there.");
+      }
+      setVidPct(p=>{ const target=secs<8?55:88; const step=(target-p)*0.12+0.6; return Math.min(target, +(p+step).toFixed(1)); });
+      timers.current.push(setTimeout(tick,700));
+    };
+    tick();
+    try{
+      const payload={ title:proj.name||"Wayfinder guide",
+        steps:steps.map((s,i)=>({ n:i+1, title:s.title, narration:scripts[s.id]??scripts[String(s.id)]??s.title })) };
+      const r=await callRender(payload);
+      const data=await r.json().catch(()=>({}));
+      if(!r.ok){ throw new Error(data.detail||data.error||`Render failed (${r.status})`); }
+      if(!data.url){ throw new Error("Render finished but no URL came back."); }
+      clearTimers(); setVidPct(100); setVidUrl(data.url); setVidState("done"); setVidPhase(""); setVidMsg("");
+    }catch(err){ clearTimers(); setVidState("error"); setVidPhase(""); setVidPct(0); setVidMsg(String(err.message||err)); }
+  };
+
+  return (
+    <div style={{animation:"fadeUp .4s ease"}}>
+      <div style={{background:"var(--teal-900)",borderRadius:20,padding:"32px 34px",position:"relative",overflow:"hidden",boxShadow:"var(--shadow-dark)"}}>
+        <div style={{position:"absolute",inset:0,backgroundImage:`url("data:image/svg+xml,${ROOF}")`,backgroundSize:"72px 72px",opacity:.45}}/>
+        <div className="pub-grid" style={{position:"relative",display:"grid",gridTemplateColumns:"1fr auto",gap:28,alignItems:"center"}}>
+          <div>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+              <span style={{width:26,height:26,borderRadius:"50%",background:"var(--amber-500)",display:"grid",placeItems:"center",color:"var(--sand-900)"}}><IcCheck size={16} stroke={3}/></span>
+              <span className="u" style={{fontSize:11,fontWeight:800,letterSpacing:".16em",color:"var(--amber-500)"}}>PUBLISHED TO THE LIBRARY</span>
+            </div>
+            <div className="u" style={{fontWeight:900,fontSize:"clamp(26px,3.5vw,40px)",lineHeight:1.05,letterSpacing:".01em",color:"#fff",marginBottom:12}}>{proj.name||"YOUR GUIDE"}</div>
+            <p style={{fontSize:15,color:"var(--sand-300)",maxWidth:460,marginBottom:22}}>That's one fewer thing anyone has to tap you on the shoulder about. Nice work.</p>
+            <div style={{display:"flex",gap:26}}>
+              <BannerStat n={steps.length} label="Steps"/>
+              <BannerStat n={mins+" min"} label="Runtime"/>
+              <BannerStat n={myCount} label="Your guides"/>
+            </div>
+          </div>
+          <div style={{background:"rgba(255,255,255,.06)",border:"1px solid rgba(255,255,255,.14)",borderRadius:16,padding:"22px 20px",textAlign:"center",minWidth:200}}>
+            <div style={{display:"flex",justifyContent:"center",marginBottom:10}}><AscentGlyph/></div>
+            <div className="u" style={{fontSize:10,fontWeight:700,letterSpacing:".14em",color:"var(--sand-300)",marginBottom:4}}>BADGE UNLOCKED</div>
+            <div style={{fontFamily:"var(--font-script)",fontStyle:"italic",fontSize:22,color:"var(--amber-500)",marginBottom:6}}>Trailblazer</div>
+            <div style={{fontSize:12,color:"var(--sand-300)",lineHeight:1.5}}>Your guides have saved the team an estimated 3 hours of shadowing.</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="pub-grid" style={{display:"grid",gridTemplateColumns:"minmax(0,1.5fr) minmax(240px,1fr)",gap:24,marginTop:24}}>
+        <div style={{background:"#fff",border:"1px solid var(--sand-200)",borderRadius:16,overflow:"hidden",boxShadow:"var(--shadow-card)"}}>
+          <div className="u" style={{padding:"14px 18px",borderBottom:"1px solid var(--sand-100)",fontWeight:700,fontSize:12,letterSpacing:".08em",color:"var(--sand-800)"}}>THE WRITTEN GUIDE</div>
+          <div style={{maxHeight:420,overflowY:"auto"}}>
+            {steps.map((s,i)=>(
+              <div key={s.id} style={{display:"flex",gap:13,padding:"14px 18px",borderBottom:i<steps.length-1?"1px solid var(--sand-100)":"none"}}>
+                <div className="num" style={{width:24,height:24,borderRadius:7,flexShrink:0,background:"var(--teal-wash)",color:"var(--teal-600)",fontWeight:700,fontSize:12,display:"grid",placeItems:"center"}}>{i+1}</div>
+                {s.thumb && <div style={{width:104,height:60,borderRadius:8,overflow:"hidden",flexShrink:0,border:"1px solid var(--sand-200)"}}><img src={s.thumb} alt={`Step ${i+1}`} style={{width:"100%",height:"100%",objectFit:"cover"}}/></div>}
+                <div style={{minWidth:0}}>
+                  <div className="u" style={{fontWeight:700,fontSize:13,letterSpacing:".02em",marginBottom:3,color:"var(--sand-900)"}}>{s.title}</div>
+                  <div style={{fontSize:14,color:"var(--sand-600)",lineHeight:1.55}}>{scripts[s.id]??scripts[String(s.id)]??""}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div>
+          <div className="u" style={{fontSize:11,fontWeight:700,letterSpacing:".12em",color:"var(--sand-500)",marginBottom:12}}>SEND IT OUT</div>
+          <div style={{display:"flex",gap:8,marginBottom:8}}>
+            <input readOnly value="wayfinder.../g/share" style={{...inp,fontSize:12.5,color:"var(--sand-500)"}}/>
+            <button onClick={copyLink} className="u" style={{...btn.primary,padding:"0 16px",fontSize:11,flexShrink:0}}>{copied?"Copied":"Copy"}</button>
+          </div>
+          {/* live narrated video via proxy -> render service */}
+          <div style={{border:"1px solid var(--sand-200)",borderRadius:12,padding:"12px 14px",marginBottom:8,background:vidState==="done"?"var(--pm-green-wash)":"#fff"}}>
+            <div style={{display:"flex",alignItems:"center",gap:12}}>
+              <span style={{color:"var(--teal-500)"}}><IcVideo size={18}/></span>
+              <span style={{flex:1}}>
+                <span className="u" style={{display:"block",fontWeight:700,fontSize:12.5,letterSpacing:".03em",color:"var(--sand-900)"}}>Narrated video</span>
+                <span style={{display:"block",fontSize:12,color:"var(--sand-500)",marginTop:1}}>
+                  {vidState==="rendering"?(vidPhase==="waking"?"Waking the engine…":"Rendering…"):vidState==="done"?"Ready · Aria voice":vidState==="error"?"Failed":"MP4 with Aria voice"}
+                </span>
+              </span>
+              {vidState==="idle" && <button onClick={makeVideo} className="u" style={{...btn.primary,padding:"7px 13px",fontSize:11}}>Make it</button>}
+              {vidState==="rendering" && <span className="num" style={{fontSize:12,fontWeight:700,color:"var(--teal-600)"}}>{Math.round(vidPct)}%</span>}
+              {vidState==="done" && <a href={vidUrl} target="_blank" rel="noopener" className="u" style={{...btn.amber,padding:"7px 13px",fontSize:11,textDecoration:"none"}}>Open</a>}
+              {vidState==="error" && <button onClick={makeVideo} className="u" style={{...btn.ghost,padding:"7px 13px",fontSize:11}}>Retry</button>}
+            </div>
+            {vidState==="rendering" && (
+              <div style={{marginTop:10}}>
+                <div style={{height:6,borderRadius:6,background:"var(--sand-100)",overflow:"hidden"}}>
+                  <div style={{width:`${vidPct}%`,height:"100%",background:vidPhase==="waking"?"var(--amber-500)":"var(--teal-500)",transition:"width .6s ease, background .3s ease"}}/>
+                </div>
+                {vidPhase==="waking" && <div style={{fontSize:11,color:"var(--amber-600)",marginTop:6,display:"flex",alignItems:"center",gap:6}}><span style={{width:6,height:6,borderRadius:"50%",background:"var(--amber-500)",animation:"pulseDot 1.1s infinite"}}/>Free tier goes to sleep after about 15 minutes idle. First one is slow, the rest are quick.</div>}
+              </div>
+            )}
+            {vidMsg && <div style={{fontSize:12,marginTop:8,color:vidState==="error"?"var(--pm-coral)":"var(--sand-600)"}}>{vidMsg}</div>}
+          </div>
+
+          {[[IcDownload,"Raw recording",".webm, right now",false,downloadRaw],
+            [IcDoc,"PDF guide","Formatted handout",true,()=>showToast("PDF export runs server-side, coming next.")],
+            [IcSlack,"Post to Slack","Share to a channel",true,()=>showToast("Slack posting activates once hosting is live.")]].map(([I,t,s,prev,fn],i)=>(
+            <button key={i} onClick={fn} style={{display:"flex",alignItems:"center",gap:12,width:"100%",background:"#fff",border:"1px solid var(--sand-200)",borderRadius:12,padding:"12px 14px",cursor:"pointer",textAlign:"left",marginBottom:8,transition:"all .15s"}}
+              onMouseEnter={e=>{e.currentTarget.style.borderColor="var(--teal-500)";e.currentTarget.style.background="var(--teal-wash)";}}
+              onMouseLeave={e=>{e.currentTarget.style.borderColor="var(--sand-200)";e.currentTarget.style.background="#fff";}}>
+              <span style={{color:"var(--teal-500)"}}><I size={18}/></span>
+              <span style={{flex:1}}>
+                <span style={{display:"flex",alignItems:"center",gap:7}}>
+                  <span className="u" style={{fontWeight:700,fontSize:12.5,letterSpacing:".03em",color:"var(--sand-900)"}}>{t}</span>
+                  {prev && <span className="u" style={{fontSize:9,fontWeight:700,letterSpacing:".05em",padding:"2px 6px",borderRadius:5,background:"var(--sand-100)",color:"var(--sand-500)"}}>PREVIEW</span>}
+                </span>
+                <span style={{display:"block",fontSize:12,color:"var(--sand-500)",marginTop:1}}>{s}</span>
+              </span>
+            </button>
+          ))}
+          <button onClick={onDone} className="u" style={{...btn.ghost,width:"100%",justifyContent:"center",marginTop:8}}>Back to library</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+function BannerStat({ n, label }){
+  return <div><div className="num" style={{fontSize:24,fontWeight:800,color:"#fff",lineHeight:1}}>{n}</div><div className="u" style={{fontSize:10,fontWeight:700,letterSpacing:".1em",color:"var(--sand-300)",marginTop:4}}>{label}</div></div>;
+}
+
+/* ================= Settings ================= */
+function SettingsScreen({ apiKey,setApiKey,keyState,setKeyState,keyMsg,testKey }){
+  const dot=(on)=><span style={{width:8,height:8,borderRadius:"50%",background:on?"var(--pm-green)":"var(--sand-300)"}}/>;
+  return (
+    <div style={{maxWidth:720,margin:"0 auto",padding:"36px 28px 90px",animation:"fadeUp .4s ease"}}>
+      <Eyebrow>SETTINGS</Eyebrow>
+      <H2>SET IT ONCE</H2>
+      <div style={{display:"flex",flexDirection:"column",gap:16,marginTop:20}}>
+        <Card>
+          <CardHead icon={<IcKey size={18}/>} title="AI CONNECTION"
+            right={<Pill ok={keyState==="valid"} label={keyState==="valid"?"Connected":keyState==="testing"?"Checking":"Not checked"}/>}/>
+          <p style={{fontSize:13.5,color:"var(--sand-600)",margin:"2px 0 14px"}}>Step detection and narration run through the Partners proxy. The API key lives on the server, so creators never paste or hold one. Use Test to confirm the app can reach it.</p>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            <button onClick={testKey} className="u" style={{...btn.primary,padding:"9px 18px",fontSize:11,flexShrink:0}}>{keyState==="testing"?<Spinner sm/>:"Test connection"}</button>
+            <span className="num" style={{fontSize:12,color:"var(--sand-500)",wordBreak:"break-all"}}>{(CFG.PROXY_URL||"proxy not set")}</span>
+          </div>
+          {keyMsg && <div style={{fontSize:13,marginTop:10,color:keyState==="valid"?"var(--pm-green)":keyState==="invalid"?"var(--pm-coral)":"var(--sand-600)"}}>{keyMsg}</div>}
+        </Card>
+        <Card>
+          <CardHead icon={<IcLink size={18}/>} title="CONNECTIONS"/>
+          {[["Claude proxy","step detection + narration",!!CFG.PROXY_URL],["Firestore","shared library",FB_ON],["Render service","narrated video",!!CFG.PROXY_URL],["Cloudflare R2","video hosting",!!CFG.R2_UPLOAD_URL]].map(([a,b,on])=>(
+            <div key={a} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"9px 0",borderBottom:"1px solid var(--sand-100)"}}>
+              <span style={{display:"flex",alignItems:"center",gap:9}}>{dot(on)}<span className="u" style={{fontSize:12,fontWeight:700,letterSpacing:".04em"}}>{a}</span></span>
+              <span style={{fontSize:12.5,color:"var(--sand-500)"}}>{on?b:"not connected"}</span>
+            </div>
+          ))}
+        </Card>
+        <Card>
+          <CardHead icon={<IcUsers size={18}/>} title="TEAM ACCESS"/>
+          <p style={{fontSize:13.5,color:"var(--sand-600)",margin:"2px 0 6px"}}>Access is a shared PIN today. That's a stopgap, not real security. Ship SSO before Wayfinder leaves the training team.</p>
+          <div className="num" style={{fontSize:13,color:"var(--sand-800)"}}>Current PIN: <b>{CFG.ACCESS_PIN}</b></div>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+/* ================= Learn (viewer stub) ================= */
+function Learn({ guides }){
+  const tracks=[
+    { id:"t1", name:"New LO Onboarding", desc:"Everything a new loan officer needs in week one.", done:1, total:2 },
+    { id:"t2", name:"Document Handling", desc:"Get docs in, tagged, and compliant.", done:0, total:1 },
+  ];
+  return (
+    <div style={{maxWidth:1120,margin:"0 auto",padding:"36px 28px 90px",animation:"fadeUp .4s ease"}}>
+      <Eyebrow>LEARN</Eyebrow>
+      <H2>YOUR TRACKS</H2>
+      <p style={{fontSize:15,color:"var(--sand-600)",marginTop:8,marginBottom:24,maxWidth:560}}>Guides grouped into paths. Pick up where you left off. (Viewer experience, wired to the data model. The player arrives with the render service.)</p>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))",gap:18}}>
+        {tracks.map(t=>{
+          const pct=Math.round(t.done/t.total*100);
+          const cta=pct===0?"Start track":pct===100?"Review":"Continue";
+          return (
+            <div key={t.id} style={{background:"#fff",border:"1px solid var(--sand-200)",borderRadius:16,padding:"20px 22px",boxShadow:"var(--shadow-card)"}}>
+              <div className="u" style={{fontWeight:800,fontSize:16,letterSpacing:".02em",color:"var(--sand-900)",marginBottom:6}}>{t.name}</div>
+              <p style={{fontSize:14,color:"var(--sand-600)",marginBottom:16}}>{t.desc}</p>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"var(--sand-500)",marginBottom:5}}>
+                <span className="u" style={{fontWeight:700,letterSpacing:".06em"}}>{t.done} of {t.total} done</span><span className="num">{pct}%</span>
+              </div>
+              <div style={{height:6,borderRadius:6,background:"var(--sand-100)",overflow:"hidden",marginBottom:16}}>
+                <div style={{width:`${pct}%`,height:"100%",background:pct>=80?"var(--pm-green)":"var(--teal-500)"}}/>
+              </div>
+              <button className="u" style={{...btn.primary,padding:"9px 16px",fontSize:11}}>{cta} <IcArrow size={14}/></button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ================= Shared bits ================= */
+function Eyebrow({ children }){ return <div className="u" style={{fontSize:11,fontWeight:700,letterSpacing:".14em",color:"var(--teal-500)",marginBottom:10}}>{children}</div>; }
+function H2({ children }){ return <h2 className="u" style={{fontWeight:900,fontSize:"clamp(28px,3.5vw,34px)",letterSpacing:".01em",color:"var(--sand-900)",lineHeight:1.05}}>{children}</h2>; }
+function Field({ label,optional,children }){
+  return <div style={{marginBottom:16}}>
+    <div style={{display:"flex",alignItems:"baseline",gap:8,marginBottom:7}}>
+      <label className="u" style={{fontSize:11,fontWeight:700,letterSpacing:".08em",color:"var(--sand-600)"}}>{label}</label>
+      {optional && <span style={{fontSize:11,color:"var(--sand-500)"}}>optional</span>}
+    </div>{children}</div>;
+}
+function Card({ children }){ return <div style={{background:"#fff",border:"1px solid var(--sand-200)",borderRadius:16,padding:"20px 22px",boxShadow:"var(--shadow-card)"}}>{children}</div>; }
+function CardHead({ icon,title,right }){
+  return <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4}}>
+    <span style={{color:"var(--teal-500)"}}>{icon}</span>
+    <span className="u" style={{fontWeight:800,fontSize:13,letterSpacing:".06em",color:"var(--sand-900)"}}>{title}</span>
+    {right && <span style={{marginLeft:"auto"}}>{right}</span>}
+  </div>;
+}
+function Pill({ ok,label }){ return <span className="u" style={{fontSize:10,fontWeight:700,letterSpacing:".06em",padding:"4px 10px",borderRadius:100,background:ok?"var(--pm-green-wash)":"var(--sand-100)",color:ok?"#5a7d0f":"var(--sand-600)"}}>{label}</span>; }
+function Spinner({ sm,big }){ const s=big?26:sm?13:16; return <span style={{width:s,height:s,border:`${big?3:2}px solid currentColor`,borderTopColor:"transparent",borderRadius:"50%",display:"inline-block",animation:"spin .7s linear infinite"}}/>; }
+function Toast({ msg }){ return <div style={{position:"fixed",bottom:24,left:"50%",transform:"translateX(-50%)",zIndex:60,background:"var(--sand-900)",color:"#fff",padding:"12px 18px",borderRadius:11,fontSize:14,boxShadow:"0 8px 30px rgba(0,0,0,.2)",maxWidth:440}}>{msg}</div>; }
+
+const inp={ width:"100%",padding:"11px 13px",fontSize:14.5,fontFamily:"var(--font-body)",color:"var(--sand-900)",background:"#fff",border:"1px solid var(--sand-200)",borderRadius:"var(--radius-input)",outline:"none",transition:"border-color .15s,box-shadow .15s" };
+const inpDark={ ...inp,background:"rgba(255,255,255,.06)",color:"#fff",border:"1px solid rgba(255,255,255,.16)" };
+
+const btn={
+  primary:{display:"inline-flex",alignItems:"center",justifyContent:"center",gap:8,background:"var(--teal-500)",color:"#fff",border:"none",borderRadius:11,padding:"12px 20px",fontSize:13,fontWeight:700,letterSpacing:".04em",cursor:"pointer",transition:"background .15s"},
+  amber:{display:"inline-flex",alignItems:"center",justifyContent:"center",gap:8,background:"var(--amber-500)",color:"var(--sand-900)",border:"none",borderRadius:11,padding:"12px 20px",fontSize:13,fontWeight:800,letterSpacing:".04em",cursor:"pointer"},
+  coral:{display:"inline-flex",alignItems:"center",justifyContent:"center",gap:8,background:"var(--pm-coral)",color:"#fff",border:"none",borderRadius:11,padding:"12px 20px",fontSize:13,fontWeight:700,letterSpacing:".04em",cursor:"pointer"},
+  ghost:{display:"inline-flex",alignItems:"center",justifyContent:"center",gap:8,background:"#fff",color:"var(--sand-800)",border:"1px solid var(--sand-200)",borderRadius:11,padding:"11px 18px",fontSize:13,fontWeight:700,letterSpacing:".04em",cursor:"pointer"},
+  outlineDark:{display:"inline-flex",alignItems:"center",justifyContent:"center",gap:8,background:"transparent",color:"#fff",border:"1px solid rgba(255,255,255,.3)",borderRadius:11,padding:"12px 20px",fontSize:13,fontWeight:700,letterSpacing:".04em",cursor:"pointer"},
+};
+function iconBtn(active,danger){ return {width:32,height:32,display:"grid",placeItems:"center",borderRadius:8,cursor:"pointer",border:"1px solid var(--sand-200)",background:"#fff",color:danger?"var(--pm-coral)":"var(--sand-600)",transition:"all .15s"}; }
+function iconBtnSm(danger){ return {flex:1,height:28,display:"grid",placeItems:"center",borderRadius:7,cursor:"pointer",border:"1px solid var(--sand-200)",background:"#fff",color:danger?"var(--pm-coral)":"var(--sand-600)"}; }
+
+ReactDOM.render(<App/>, document.getElementById("root"));
+</script>
+</body>
+</html>
