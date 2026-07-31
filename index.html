@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Wayfinder · Partners Mortgage</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 96 96'%3E%3Crect width='96' height='96' rx='20' fill='%23062f34'/%3E%3Cpath d='M18 50 L48 23 L78 50' stroke='%23ffffff' stroke-width='9' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3Cpath d='M32 62 L48 47 L64 62 L64 77 L32 77 Z' fill='%23ffac27'/%3E%3Ccircle cx='48' cy='67' r='5.5' fill='%23062f34'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,500;0,600;0,700;0,800;0,900&family=Lora:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Lobster+Two:ital,wght@1,400;1,700&display=swap" rel="stylesheet">
@@ -11,7 +12,9 @@
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <style>
   :root{
     --teal-500:#00818d; --teal-600:#006e78; --teal-800:#044248; --teal-900:#062f34;
@@ -50,7 +53,17 @@
 
 <script>
 window.WAYFINDER_CONFIG = {
-  ACCESS_PIN: "1988",
+  // Only email addresses at this domain may create an account.
+  ALLOWED_DOMAIN: "partnersmortgage.com",
+  // Admins can record and publish guides. Everyone else is a viewer.
+  ADMINS: [
+    "lboyd@partnersmortgage.com",
+    "rgaines@partnersmortgage.com",
+    "jmorgan@partnersmortgage.com",
+    "mmiles@partnersmortgage.com",
+    "ktetz@partnersmortgage.com",
+    "jkarabinus@partnersmortgage.com"
+  ],
   firebase: { apiKey:"AIzaSyBA5MupoOC5_UjOPv5Umg4rn8Vzi6NLA8Y", authDomain:"wayfinder-1b0a4.firebaseapp.com", projectId:"wayfinder-1b0a4", storageBucket:"wayfinder-1b0a4.firebasestorage.app", messagingSenderId:"1017935566063", appId:"1:1017935566063:web:8f362b8f0818a06241771a" },
   R2_UPLOAD_URL: "https://wayfinder-r2.partnersmortgage88.workers.dev",
   PROXY_URL: "https://wayfinder-proxy.partnersmortgage88.workers.dev"
@@ -62,32 +75,36 @@ const { useState, useRef, useEffect } = React;
 const CFG = window.WAYFINDER_CONFIG;
 
 /* ---------- Firebase init (graceful) ---------- */
-let db = null, FB_ON = false;
+let db = null, FB_ON = false, auth = null;
 try{
   if(CFG.firebase && CFG.firebase.apiKey && CFG.firebase.projectId){
     firebase.initializeApp(CFG.firebase);
     db = firebase.firestore();
+    auth = firebase.auth();
     FB_ON = true;
   }
 }catch(e){ FB_ON = false; }
 
-/* ---------- proxy helpers (secrets live in the Worker, not here) ---------- */
+const DOMAIN = (CFG.ALLOWED_DOMAIN||"").toLowerCase();
+const ADMINS = (CFG.ADMINS||[]).map(e=>String(e).toLowerCase());
+const isAdminEmail = (email)=> ADMINS.includes(String(email||"").toLowerCase());
+const isAllowedEmail = (email)=> !DOMAIN || String(email||"").toLowerCase().endsWith("@"+DOMAIN);
+
+/* ---------- proxy helpers (send the signed-in user's token) ---------- */
 const PROXY = (CFG.PROXY_URL||"").replace(/\/+$/,"");
+async function authHeaders(){
+  const h = { "Content-Type":"application/json" };
+  try{
+    const u = auth && auth.currentUser;
+    if(u){ const t = await u.getIdToken(); h["Authorization"] = "Bearer " + t; }
+  }catch{}
+  return h;
+}
 async function callClaude(payload){
-  const r = await fetch(PROXY + "/claude", {
-    method:"POST",
-    headers:{ "Content-Type":"application/json", "x-gate-pin": String(CFG.ACCESS_PIN||"") },
-    body: JSON.stringify(payload)
-  });
-  return r;
+  return fetch(PROXY + "/claude", { method:"POST", headers: await authHeaders(), body: JSON.stringify(payload) });
 }
 async function callRender(body){
-  const r = await fetch(PROXY + "/render", {
-    method:"POST",
-    headers:{ "Content-Type":"application/json", "x-gate-pin": String(CFG.ACCESS_PIN||"") },
-    body: JSON.stringify(body)
-  });
-  return r;
+  return fetch(PROXY + "/render", { method:"POST", headers: await authHeaders(), body: JSON.stringify(body) });
 }
 
 /* ---------- Icons ---------- */
@@ -147,6 +164,14 @@ const LS_KEY = "wf_apikey";
 const LS_GUIDES = "wf_guides";
 const SS_UNLOCK = "wf_unlocked";
 const CATS = ["Pricing","LOS","Documents","Compliance","Onboarding"];
+const VOICES = [
+  { id:"Danielle", label:"Danielle", note:"warm, natural" },
+  { id:"Joanna",   label:"Joanna",   note:"clear, classic" },
+  { id:"Ruth",     label:"Ruth",     note:"expressive" },
+  { id:"Salli",    label:"Salli",    note:"bright, upbeat" },
+  { id:"Matthew",  label:"Matthew",  note:"steady, calm" },
+  { id:"Stephen",  label:"Stephen",  note:"confident" },
+];
 
 /* ---------- resilient storage ---------- */
 const memStore = {};
@@ -176,41 +201,158 @@ const ROOF = encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='
 
 /* ================================================================ */
 function App(){
-  const [unlocked,setUnlocked] = useState(()=>{ try{ return store.get(SS_UNLOCK)==="1"; }catch{ return false; } });
-  if(!unlocked) return <Gate onOk={()=>{ try{store.set(SS_UNLOCK,"1");}catch{}; setUnlocked(true); }}/>;
-  return <Studio/>;
+  const [state,setState] = useState({ phase:"loading", user:null });
+
+  useEffect(()=>{
+    if(!FB_ON || !auth){ setState({ phase:"noauth", user:null }); return; }
+    const unsub = auth.onAuthStateChanged(async (u)=>{
+      if(!u){ setState({ phase:"signedout", user:null }); return; }
+      // reload so a just-clicked verification link is reflected
+      try{ await u.reload(); }catch{}
+      const email = (u.email||"").toLowerCase();
+      if(!isAllowedEmail(email)){
+        try{ await auth.signOut(); }catch{}
+        setState({ phase:"signedout", user:null, notice:"That address isn't a Partners Mortgage account." });
+        return;
+      }
+      if(!u.emailVerified){ setState({ phase:"unverified", user:u }); return; }
+      setState({ phase:"in", user:u, email, admin:isAdminEmail(email) });
+    });
+    return ()=>unsub();
+  },[]);
+
+  if(state.phase==="loading") return <Splash label="Loading…"/>;
+  if(state.phase==="noauth") return <Splash label="Sign-in isn't configured yet." sub="Add your Firebase config to enable accounts."/>;
+  if(state.phase==="signedout") return <AuthGate notice={state.notice}/>;
+  if(state.phase==="unverified") return <VerifyNotice user={state.user}/>;
+  return <Studio me={{ email:state.email, admin:state.admin, user:state.user }}/>;
 }
 
-/* ================= PIN gate ================= */
-function Gate({ onOk }){
-  const [pin,setPin] = useState("");
-  const [err,setErr] = useState(false);
-  const submit = ()=>{ if(pin===String(CFG.ACCESS_PIN)) onOk(); else { setErr(true); setPin(""); } };
+function Shell({ children }){
   return (
     <div style={{minHeight:"100%",display:"grid",placeItems:"center",padding:24,background:"var(--teal-900)"}}>
       <div style={{position:"absolute",inset:0,backgroundImage:`url("data:image/svg+xml,${ROOF}")`,backgroundSize:"72px 72px",opacity:.6}}/>
-      <div style={{position:"relative",width:"100%",maxWidth:380,textAlign:"center",animation:"fadeUp .4s ease"}}>
-        <div style={{display:"inline-grid",placeItems:"center",width:66,height:66,borderRadius:18,background:"var(--teal-800)",marginBottom:22,boxShadow:"var(--shadow-dark)"}}>
+      <div style={{position:"relative",width:"100%",maxWidth:400,textAlign:"center",animation:"fadeUp .4s ease"}}>
+        <div style={{display:"inline-grid",placeItems:"center",width:66,height:66,borderRadius:18,background:"var(--teal-800)",marginBottom:20,boxShadow:"var(--shadow-dark)"}}>
           <Mark size={40} onDark/>
         </div>
-        <div className="u" style={{fontWeight:900,fontSize:30,letterSpacing:".1em",color:"#fff"}}>WAYFINDER</div>
-        <div className="u" style={{fontSize:9,letterSpacing:".2em",color:"var(--sand-300)",marginTop:6,marginBottom:26}}>A PARTNERS MORTGAGE TOOL</div>
-        <input type="password" inputMode="numeric" value={pin} autoFocus
-          onChange={e=>{ setPin(e.target.value); setErr(false); }}
-          onKeyDown={e=>{ if(e.key==="Enter") submit(); }} placeholder="••••"
-          style={{...inpDark,textAlign:"center",fontSize:22,letterSpacing:".3em",padding:"14px",borderColor:err?"var(--pm-coral)":"rgba(255,255,255,.16)"}}/>
-        {err && <div style={{color:"#ffb4b8",fontSize:13,marginTop:10}}>That PIN didn't match. Try again.</div>}
-        <button onClick={submit} className="u" style={{...btn.amber,width:"100%",justifyContent:"center",marginTop:16}}>
-          Unlock <IcArrow size={16}/>
-        </button>
-        <p style={{fontSize:12,color:"var(--sand-500)",marginTop:22}}>Internal tool. A shared PIN is a stopgap, not real access control.</p>
+        <div className="u" style={{fontWeight:900,fontSize:28,letterSpacing:".1em",color:"#fff"}}>WAYFINDER</div>
+        <div className="u" style={{fontSize:9,letterSpacing:".2em",color:"var(--sand-300)",marginTop:6,marginBottom:24}}>A PARTNERS MORTGAGE TOOL</div>
+        {children}
       </div>
     </div>
   );
 }
+function Splash({ label, sub }){
+  return <Shell><div style={{color:"#fff",fontSize:15}}>{label}</div>{sub && <div style={{color:"var(--sand-300)",fontSize:13,marginTop:8}}>{sub}</div>}</Shell>;
+}
+
+/* ================= Sign in / sign up ================= */
+function AuthGate({ notice }){
+  const [mode,setMode] = useState("in");      // "in" | "up" | "reset"
+  const [email,setEmail] = useState("");
+  const [pw,setPw] = useState("");
+  const [busy,setBusy] = useState(false);
+  const [msg,setMsg] = useState(notice||"");
+  const [good,setGood] = useState("");
+
+  const go = async ()=>{
+    setMsg(""); setGood("");
+    const e = email.trim().toLowerCase();
+    if(!e || (mode!=="reset" && !pw)){ setMsg("Enter your email and password."); return; }
+    if(!isAllowedEmail(e)){ setMsg(`Use your @${DOMAIN} email address.`); return; }
+    setBusy(true);
+    try{
+      if(mode==="up"){
+        const cred = await auth.createUserWithEmailAndPassword(e, pw);
+        try{ await cred.user.sendEmailVerification(); }catch{}
+        setGood("Account created. Check your email for the verification link.");
+      } else if(mode==="reset"){
+        await auth.sendPasswordResetEmail(e);
+        setGood("Password reset email sent.");
+      } else {
+        await auth.signInWithEmailAndPassword(e, pw);
+      }
+    }catch(err){
+      const c = (err && err.code) || "";
+      setMsg(
+        c==="auth/invalid-credential" || c==="auth/wrong-password" || c==="auth/user-not-found" ? "That email and password didn't match."
+        : c==="auth/email-already-in-use" ? "An account already exists for that email. Try signing in."
+        : c==="auth/weak-password" ? "Use at least 6 characters for the password."
+        : c==="auth/too-many-requests" ? "Too many attempts. Wait a moment and try again."
+        : c==="auth/invalid-email" ? "That email address doesn't look right."
+        : (err && err.message) || "Something went wrong."
+      );
+    }finally{ setBusy(false); }
+  };
+
+  return (
+    <Shell>
+      <div style={{background:"rgba(255,255,255,.06)",border:"1px solid rgba(255,255,255,.14)",borderRadius:16,padding:"20px 20px 22px",textAlign:"left"}}>
+        <div className="u" style={{fontSize:11,fontWeight:700,letterSpacing:".12em",color:"var(--amber-500)",marginBottom:14,textAlign:"center"}}>
+          {mode==="up"?"CREATE YOUR ACCOUNT":mode==="reset"?"RESET PASSWORD":"SIGN IN"}
+        </div>
+        <label className="u" style={{fontSize:10,fontWeight:700,letterSpacing:".08em",color:"var(--sand-300)",display:"block",marginBottom:6}}>Work email</label>
+        <input value={email} autoFocus autoComplete="username" onChange={e=>setEmail(e.target.value)}
+          onKeyDown={e=>{ if(e.key==="Enter") go(); }} placeholder={`you@${DOMAIN}`} style={{...inpDark,marginBottom:12}}/>
+        {mode!=="reset" && <>
+          <label className="u" style={{fontSize:10,fontWeight:700,letterSpacing:".08em",color:"var(--sand-300)",display:"block",marginBottom:6}}>Password</label>
+          <input type="password" value={pw} autoComplete={mode==="up"?"new-password":"current-password"}
+            onChange={e=>setPw(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter") go(); }}
+            placeholder={mode==="up"?"at least 6 characters":"••••••••"} style={{...inpDark,marginBottom:4}}/>
+        </>}
+        {msg && <div style={{color:"#ffb4b8",fontSize:12.5,marginTop:10}}>{msg}</div>}
+        {good && <div style={{color:"#cfe89a",fontSize:12.5,marginTop:10}}>{good}</div>}
+        <button onClick={go} disabled={busy} className="u" style={{...btn.amber,width:"100%",justifyContent:"center",marginTop:14,opacity:busy?.6:1}}>
+          {busy?<Spinner sm/>:(mode==="up"?"Create account":mode==="reset"?"Send reset email":"Sign in")}
+        </button>
+        <div style={{display:"flex",justifyContent:"space-between",marginTop:14,fontSize:12}}>
+          {mode==="in" ? (
+            <>
+              <button onClick={()=>{setMode("up");setMsg("");setGood("");}} style={linkBtn}>Create an account</button>
+              <button onClick={()=>{setMode("reset");setMsg("");setGood("");}} style={linkBtn}>Forgot password</button>
+            </>
+          ) : (
+            <button onClick={()=>{setMode("in");setMsg("");setGood("");}} style={linkBtn}>Back to sign in</button>
+          )}
+        </div>
+      </div>
+      <p style={{fontSize:11.5,color:"var(--sand-500)",marginTop:18,lineHeight:1.5}}>
+        Anyone with a Partners Mortgage email can create an account and watch guides. Recording is limited to training admins.
+      </p>
+    </Shell>
+  );
+}
+const initials = (email)=>{ const n=(email||"").split("@")[0].replace(/[^a-z]/gi," ").trim().split(/\s+/); return ((n[0]||"?")[0]+((n[1]||"")[0]||"")).toUpperCase(); };
+const linkBtn = { background:"none",border:"none",color:"var(--sand-300)",fontSize:12,cursor:"pointer",padding:0,textDecoration:"underline" };
+
+/* ================= Verify email ================= */
+function VerifyNotice({ user }){
+  const [sent,setSent] = useState(false);
+  const [busy,setBusy] = useState(false);
+  const resend = async ()=>{ setBusy(true); try{ await user.sendEmailVerification(); setSent(true); }catch{} finally{ setBusy(false); } };
+  return (
+    <Shell>
+      <div style={{background:"rgba(255,255,255,.06)",border:"1px solid rgba(255,255,255,.14)",borderRadius:16,padding:"22px 20px"}}>
+        <div className="u" style={{fontSize:11,fontWeight:700,letterSpacing:".12em",color:"var(--amber-500)",marginBottom:12}}>ONE MORE STEP</div>
+        <p style={{color:"#fff",fontSize:14.5,lineHeight:1.6,marginBottom:8}}>
+          We sent a verification link to <b>{user.email}</b>. Click it, then come back and refresh this page.
+        </p>
+        <p style={{color:"var(--sand-300)",fontSize:12.5,marginBottom:16}}>Check spam if it hasn't arrived in a minute.</p>
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={()=>window.location.reload()} className="u" style={{...btn.amber,flex:1,justifyContent:"center"}}>I've verified</button>
+          <button onClick={resend} disabled={busy||sent} className="u" style={{...btn.outlineDark,flex:1,justifyContent:"center",opacity:(busy||sent)?.6:1}}>
+            {sent?"Sent":busy?<Spinner sm/>:"Resend"}
+          </button>
+        </div>
+        <button onClick={()=>auth.signOut()} style={{...linkBtn,marginTop:14}}>Sign out</button>
+      </div>
+    </Shell>
+  );
+}
 
 /* ================= Main ================= */
-function Studio(){
+function Studio({ me }){
   const [stage,setStage] = useState("library");
   const [proj,setProj] = useState({ name:"", desc:"", cat:"Pricing" });
   const [apiKey,setApiKey] = useState(()=>{ try{ return store.get(LS_KEY)||""; }catch{ return ""; } });
@@ -218,6 +360,8 @@ function Studio(){
   const [keyMsg,setKeyMsg] = useState("");
   const [steps,setSteps] = useState([]);
   const [scripts,setScripts] = useState({});
+  const [details,setDetails] = useState({});
+  const [voice,setVoice] = useState("Danielle");
   const [genErr,setGenErr] = useState("");
   const [busy,setBusy] = useState(false);
   const [toast,setToast] = useState(null);
@@ -251,15 +395,15 @@ function Studio(){
     setKeyState("testing"); setKeyMsg("");
     try{
       const r = await callClaude({ model:MODEL, max_tokens:8, messages:[{role:"user",content:"ping"}] });
-      if(r.ok){ setKeyState("valid"); setKeyMsg("Connected through the Partners proxy. No key needed on your end."); return; }
+      if(r.ok){ setKeyState("valid"); setKeyMsg("Connected and ready. Nothing to set up on your end."); return; }
       const e = await r.json().catch(()=>({}));
       setKeyState("invalid");
-      setKeyMsg(r.status===401 ? "Proxy rejected the request (check the gate PIN or the key stored in the Worker)."
-        : r.status===429 ? "Rate limited (429). Busy, try again shortly."
-        : `Couldn't reach the proxy (${r.status}). ${e?.error?.message||""}`);
+      setKeyMsg(r.status===401 ? "Connection was refused (an access setting needs a look)."
+        : r.status===429 ? "Busy right now. Try again in a moment."
+        : `Couldn't connect (${r.status}). ${e?.error?.message||""}`);
     }catch{
       setKeyState("invalid");
-      setKeyMsg("Couldn't reach the proxy. Check PROXY_URL and that the Worker is deployed.");
+      setKeyMsg("Couldn't reach the service. Make sure you're online and try again."); /* dev note: check PROXY_URL + Worker deploy */
     }
   };
 
@@ -389,14 +533,30 @@ ${list}`;
   };
 
   const goGenerate = ()=>{ setStage("generating"); setTimeout(()=>setStage("preview"),2500); };
-  const newGuide = ()=>{ setProj({name:"",desc:"",cat:"Pricing"}); setSteps([]); setScripts({}); setGenErr("");
+  const expandDetail = async (step)=>{
+    const narration = scripts[step.id]??scripts[String(step.id)]??"";
+    const content = [];
+    if(step.thumb) content.push({ type:"image", source:{ type:"base64", media_type:"image/jpeg", data:step.thumb.split(",")[1] } });
+    content.push({ type:"text", text:
+`This is one step in a written training guide for Partners Mortgage (internal audience). Voice: plain, direct, warm, no jargon, no fluff.
+
+Step title: "${step.title}"
+Short narration (for the video): "${narration}"
+
+Write a fuller written explanation for the PDF version of this step: 2 to 4 sentences that add the useful detail a spoken line skips (what to watch for, why it matters, a gotcha or tip). Do not repeat the title. Return ONLY the paragraph text, no preamble, no markdown.` });
+    const r = await callClaude({ model:MODEL, max_tokens:400, messages:[{ role:"user", content }] });
+    if(!r.ok){ const e=await r.json().catch(()=>({})); throw new Error(e?.error?.message || `Expand failed (${r.status})`); }
+    const data = await r.json();
+    return (data.content?.[0]?.text || "").trim();
+  };
+  const newGuide = ()=>{ if(!(me&&me.admin)){ showToast("Recording is limited to training admins."); return; } setProj({name:"",desc:"",cat:"Pricing"}); setSteps([]); setScripts({}); setDetails({}); setGenErr("");
     setRecUrl(null); setRecBlob(null); setDur(0); setMarks([]); setAnalyzeErr(""); setStage("setup"); };
 
   const saveToLibrary = async ()=>{
     const cover = steps.find(s=>s.thumb)?.thumb || "";
     const entry = { name:proj.name||"Untitled guide", desc:proj.desc||"", cat:proj.cat||"Pricing",
       steps:steps.length, mins:Math.max(1,Math.round((dur||steps.length*40)/60)), status:"Published",
-      updated:Date.now(), plays:0, pct:0, author:"You", coverFrame:cover };
+      updated:Date.now(), plays:0, pct:0, author:(me&&me.email)||"You", coverFrame:cover };
     if(FB_ON && db){
       try{ await db.collection("guides").add(entry); showToast(`"${entry.name}" published to the library.`); }
       catch{ showToast("Couldn't reach Firestore. Check your config and rules."); }
@@ -416,10 +576,10 @@ ${list}`;
 
   return (
     <div style={{minHeight:"100%",display:"flex",flexDirection:"column"}}>
-      <Header stage={stage} setStage={setStage} onRecord={newGuide}/>
+      <Header stage={stage} setStage={setStage} onRecord={newGuide} me={me}/>
       {inFlow && <FlowStrip steps={FLOW} active={stageIndex} onExit={()=>setStage("library")}/>}
 
-      {stage==="library" && <Library {...{guides,loadingLib,onNew:newGuide,onDelete:deleteGuide,setStage}}/>}
+      {stage==="library" && <Library {...{guides,loadingLib,onNew:newGuide,onDelete:deleteGuide,setStage,me}}/>}
       {stage==="learn" && <Learn guides={guides}/>}
       {stage==="settings" && <SettingsScreen {...{apiKey,setApiKey,keyState,setKeyState,keyMsg,testKey}}/>}
 
@@ -429,9 +589,9 @@ ${list}`;
           {stage==="recording" && <RecordStudio {...{onStop:stopRec,marks,setMarks}}/>}
           {stage==="analyzing" && <Analyzing msg={analyzeMsg} pct={analyzePct}/>}
           {stage==="steps" && <Steps {...{steps,setSteps,busy,recUrl,dur,analyzeErr,onGen:genScripts,onBack:()=>setStage("setup")}}/>}
-          {stage==="editing" && <Editing {...{steps,scripts,setScripts,genErr,onNext:goGenerate,onBack:()=>setStage("steps")}}/>}
+          {stage==="editing" && <Editing {...{steps,scripts,setScripts,details,setDetails,expandDetail,genErr,onNext:goGenerate,onBack:()=>setStage("steps")}}/>}
           {stage==="generating" && <Generating/>}
-          {stage==="preview" && <Published {...{proj,steps,scripts,recUrl,recBlob,dur,guides,showToast,onSave:saveToLibrary,onDone:()=>setStage("library")}}/>}
+          {stage==="preview" && <Published {...{proj,steps,scripts,details,voice,setVoice,recUrl,recBlob,dur,guides,showToast,onSave:saveToLibrary,onDone:()=>setStage("library")}}/>}
         </main>
       )}
       {toast && <Toast msg={toast}/>}
@@ -450,7 +610,7 @@ ${list}`;
 }
 
 /* ================= Header ================= */
-function Header({ stage, setStage, onRecord }){
+function Header({ stage, setStage, onRecord, me }){
   const nav=[["Library","library"],["Learn","learn"],["Settings","settings"]];
   const active = ["library","learn","settings"].includes(stage) ? stage : null;
   return (
@@ -471,8 +631,15 @@ function Header({ stage, setStage, onRecord }){
       </nav>
       <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:16}}>
         <span style={{fontFamily:"var(--font-script)",fontStyle:"italic",fontSize:19,color:"var(--teal-500)"}}>You matter.</span>
-        <button onClick={onRecord} className="u" style={{...btn.primary,padding:"10px 16px",fontSize:12}}><IcRecord size={14}/> Record a guide</button>
-        <span style={{width:34,height:34,borderRadius:"50%",background:"var(--teal-900)",color:"#fff",display:"grid",placeItems:"center",fontFamily:"var(--font-display)",fontWeight:700,fontSize:13}}>Yu</span>
+        {me && me.admin && <button onClick={onRecord} className="u" style={{...btn.primary,padding:"10px 16px",fontSize:12}}><IcRecord size={14}/> Record a guide</button>}
+        <span title={(me&&me.email)||""} style={{display:"flex",alignItems:"center",gap:8}}>
+          {me && me.admin && <span className="u" style={{fontSize:9,fontWeight:700,letterSpacing:".08em",padding:"3px 7px",borderRadius:100,background:"var(--amber-wash)",color:"var(--amber-600)"}}>ADMIN</span>}
+          <span style={{width:34,height:34,borderRadius:"50%",background:"var(--teal-900)",color:"#fff",display:"grid",placeItems:"center",fontFamily:"var(--font-display)",fontWeight:700,fontSize:12}}>
+            {initials((me&&me.email)||"")}
+          </span>
+          <button onClick={()=>{ try{ auth.signOut(); }catch{} }} className="u" title="Sign out"
+            style={{background:"none",border:"none",color:"var(--sand-500)",fontSize:10,fontWeight:700,letterSpacing:".06em",cursor:"pointer",padding:0}}>Sign out</button>
+        </span>
       </div>
     </header>
   );
@@ -533,7 +700,7 @@ function Cover({ title, status, mins, frame, size="card" }){
 }
 
 /* ================= Library ================= */
-function Library({ guides, loadingLib, onNew, onDelete, setStage }){
+function Library({ guides, loadingLib, onNew, onDelete, setStage, me }){
   const [q,setQ] = useState("");
   const [cat,setCat] = useState("All");
   const [sort,setSort] = useState("Newest");
@@ -566,7 +733,7 @@ function Library({ guides, loadingLib, onNew, onDelete, setStage }){
             <h1 className="u" style={{fontWeight:900,fontSize:"clamp(34px,5vw,50px)",lineHeight:1.02,letterSpacing:".01em",color:"#fff",marginBottom:16}}>SHOW SOMEONE<br/>HOW IT'S DONE</h1>
             <p style={{fontSize:16,color:"var(--sand-300)",maxWidth:440,marginBottom:26}}>Record a workflow once. Claude finds the steps, writes the narration, and it lands in the shared library for the whole team.</p>
             <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
-              <button onClick={onNew} className="u" style={{...btn.amber,padding:"13px 22px"}}><IcRecord size={16}/> Start recording</button>
+              {me && me.admin && <button onClick={onNew} className="u" style={{...btn.amber,padding:"13px 22px"}}><IcRecord size={16}/> Start recording</button>}
               <button onClick={()=>setStage("learn")} className="u" style={{...btn.outlineDark,padding:"13px 22px"}}><IcEye size={16}/> Browse as a learner</button>
             </div>
           </div>
@@ -656,19 +823,19 @@ function Library({ guides, loadingLib, onNew, onDelete, setStage }){
                     </span>
                     <span style={{display:"flex",gap:4}}>
                       <button title="Open" style={iconBtn()}><IcPlay size={14}/></button>
-                      <button title="Delete" onClick={()=>onDelete(g.id)} style={iconBtn(false,true)}><IcTrash size={14}/></button>
+                      {me && me.admin && <button title="Delete" onClick={()=>onDelete(g.id)} style={iconBtn(false,true)}><IcTrash size={14}/></button>}
                     </span>
                   </div>
                 </div>
               </div>
             ))}
-            <button onClick={onNew} style={{border:"1.5px dashed var(--sand-300)",borderRadius:16,background:"transparent",cursor:"pointer",padding:"28px 20px",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12,minHeight:220,transition:"all .18s"}}
+            {me && me.admin && <button onClick={onNew} style={{border:"1.5px dashed var(--sand-300)",borderRadius:16,background:"transparent",cursor:"pointer",padding:"28px 20px",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12,minHeight:220,transition:"all .18s"}}
               onMouseEnter={e=>{e.currentTarget.style.borderColor="var(--teal-500)";e.currentTarget.style.background="var(--teal-wash)";}}
               onMouseLeave={e=>{e.currentTarget.style.borderColor="var(--sand-300)";e.currentTarget.style.background="transparent";}}>
               <span style={{width:46,height:46,borderRadius:12,background:"var(--teal-500)",color:"#fff",display:"grid",placeItems:"center"}}><IcPlus size={22}/></span>
               <span className="u" style={{fontWeight:800,fontSize:14,letterSpacing:".03em",color:"var(--sand-800)"}}>RECORD A GUIDE</span>
               <span style={{fontSize:13,color:"var(--sand-600)",textAlign:"center",maxWidth:220}}>Something you explain more than twice? Record it once.</span>
-            </button>
+            </button>}
           </div>
          )}
       </div>
@@ -895,17 +1062,28 @@ function Steps({ steps,setSteps,busy,recUrl,dur,analyzeErr,onGen,onBack }){
 }
 
 /* ================= Editing (script) ================= */
-function Editing({ steps,scripts,setScripts,genErr,onNext,onBack }){
+function Editing({ steps,scripts,setScripts,details,setDetails,expandDetail,genErr,onNext,onBack }){
   const set=(id,v)=> setScripts({...scripts,[id]:v});
+  const setD=(id,v)=> setDetails({...details,[id]:v});
+  const [busyId,setBusyId]=useState(null);
+  const [expErr,setExpErr]=useState("");
+  const doExpand=async(s)=>{
+    setBusyId(s.id); setExpErr("");
+    try{ const txt=await expandDetail(s); setDetails(prev=>({...prev,[s.id]:txt})); }
+    catch(err){ setExpErr(String(err.message||err)); }
+    finally{ setBusyId(null); }
+  };
   return (
     <div style={{maxWidth:820,animation:"fadeUp .35s ease"}}>
       <Eyebrow>STEP 4 OF 5</Eyebrow>
       <H2>SOUND LIKE YOURSELF</H2>
-      <p style={{fontSize:15,color:"var(--sand-600)",marginTop:8,marginBottom:22,maxWidth:600}}>Claude drafted these in the Partners voice. Tune anything that doesn't sound like you. Two sentences beats five.</p>
+      <p style={{fontSize:15,color:"var(--sand-600)",marginTop:8,marginBottom:22,maxWidth:600}}>The narration stays short for the video. The detail field adds depth for the written PDF only, so the guide can teach more without slowing the video down.</p>
       {genErr && <div style={{display:"flex",gap:10,padding:"12px 14px",borderRadius:11,marginBottom:18,background:"#FBEDEA",color:"var(--pm-coral)",fontSize:13.5}}><IcX size={16}/><span>{genErr}</span></div>}
+      {expErr && <div style={{display:"flex",gap:10,padding:"12px 14px",borderRadius:11,marginBottom:18,background:"#FBEDEA",color:"var(--pm-coral)",fontSize:13.5}}><IcX size={16}/><span>{expErr}</span></div>}
       <div style={{display:"flex",flexDirection:"column",gap:14}}>
         {steps.map((s)=>{
           const v=scripts[s.id]??scripts[String(s.id)]??""; const len=v.length;
+          const d=details[s.id]??details[String(s.id)]??"";
           const tone=len===0?"var(--sand-500)":len<=140?"var(--pm-green)":len<=220?"var(--amber-600)":"var(--pm-coral)";
           return (
             <div key={s.id} style={{background:"#fff",border:"1px solid var(--sand-200)",borderRadius:14,padding:"14px 16px",boxShadow:"var(--shadow-card)"}}>
@@ -916,10 +1094,20 @@ function Editing({ steps,scripts,setScripts,genErr,onNext,onBack }){
                   <div className="u" style={{fontWeight:700,fontSize:13,letterSpacing:".03em",color:"var(--sand-900)"}}>{s.title}</div>
                 </div>
               </div>
+              <label className="u" style={{fontSize:10,fontWeight:700,letterSpacing:".08em",color:"var(--sand-500)",display:"block",marginBottom:5}}>Narration · spoken in the video</label>
               <textarea value={v} onChange={e=>set(s.id,e.target.value)} rows={2} style={{...inp,fontFamily:"var(--font-body)",fontSize:15,lineHeight:1.6}}/>
               <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginTop:6,color:tone}}>
                 <span>Two sentences beats five.</span><span className="num">{len}</span>
               </div>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginTop:14,marginBottom:5}}>
+                <label className="u" style={{fontSize:10,fontWeight:700,letterSpacing:".08em",color:"var(--sand-500)"}}>Written detail · PDF only <span style={{color:"var(--sand-400,#b8b0aa)",fontWeight:600}}>optional</span></label>
+                <button onClick={()=>doExpand(s)} disabled={busyId===s.id} className="u"
+                  style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:10,fontWeight:700,letterSpacing:".05em",padding:"5px 10px",borderRadius:8,cursor:"pointer",border:"1px solid var(--amber-500)",background:"var(--amber-wash)",color:"var(--amber-600)"}}>
+                  {busyId===s.id?<><Spinner sm/> Expanding…</>:<><IcSpark size={13}/> Expand with AI</>}
+                </button>
+              </div>
+              <textarea value={d} onChange={e=>setD(s.id,e.target.value)} rows={3} placeholder="Add extra context, tips, or warnings for the written guide. Leave blank to keep the PDF short."
+                style={{...inp,fontFamily:"var(--font-body)",fontSize:14.5,lineHeight:1.6,background:"var(--sand-50)"}}/>
             </div>
           );
         })}
@@ -956,7 +1144,7 @@ function Generating(){
 }
 
 /* ================= Published (reward) ================= */
-function Published({ proj,steps,scripts,recUrl,recBlob,dur,guides,showToast,onSave,onDone }){
+function Published({ proj,steps,scripts,details,voice,setVoice,recUrl,recBlob,dur,guides,showToast,onSave,onDone }){
   const [saved,setSaved]=useState(false);
   const [copied,setCopied]=useState(false);
   const [vidState,setVidState]=useState("idle"); // idle | rendering | done | error
@@ -967,6 +1155,62 @@ function Published({ proj,steps,scripts,recUrl,recBlob,dur,guides,showToast,onSa
   const myCount=(guides.filter(g=>g.author==="You").length)+1;
   const downloadRaw=()=>{ if(!recBlob)return; const a=document.createElement("a"); a.href=URL.createObjectURL(recBlob); a.download=`${(proj.name||"recording").replace(/[^a-z0-9-_]+/gi,"-").toLowerCase()}.webm`; a.click(); };
   const copyLink=()=>{ try{ navigator.clipboard.writeText("https://wayfinder.partnersmortgage.com/g/"+Date.now().toString(36)); }catch{} setCopied(true); setTimeout(()=>setCopied(false),2000); };
+  const makePDF=()=>{
+    try{
+      const JS = window.jspdf && window.jspdf.jsPDF;
+      if(!JS){ showToast("PDF library still loading, try again in a second."); return; }
+      const doc = new JS({ unit:"pt", format:"letter" });
+      const W=612, M=54; let y=0;
+      const teal=[0,110,120], deep=[6,47,52], sand=[90,120], ink=[36,31,29], soft=[90,90,90], amber=[255,172,39];
+      // cover band
+      doc.setFillColor(deep[0],deep[1],deep[2]); doc.rect(0,0,W,150,"F");
+      doc.setFillColor(amber[0],amber[1],amber[2]); doc.rect(M,58,34,5,"F");
+      doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(22);
+      doc.text((proj.name||"Training Guide").toUpperCase(), M, 92, { maxWidth:W-M*2 });
+      doc.setFont("helvetica","normal"); doc.setFontSize(10.5); doc.setTextColor(210,210,205);
+      doc.text(proj.desc||"A Partners Mortgage training guide", M, 116, { maxWidth:W-M*2 });
+      doc.setFontSize(8.5); doc.setTextColor(180,180,175);
+      doc.text("WAYFINDER  ·  PARTNERS MORTGAGE", M, 138);
+      y=182;
+
+      steps.forEach((s,i)=>{
+        const detail = (details&&(details[s.id]??details[String(s.id)]))||"";
+        const narr = scripts[s.id]??scripts[String(s.id)]??"";
+        const body = detail.trim() || narr;
+        // estimate block height
+        const hasImg = !!s.thumb;
+        const imgH = hasImg?92:0, imgW=hasImg?164:0;
+        doc.setFont("helvetica","normal"); doc.setFontSize(11);
+        const textW = W-M*2-(hasImg?imgW+16:0);
+        const lines = doc.splitTextToSize(body||" ", textW);
+        const blockH = Math.max(imgH, 24+lines.length*15) + 26;
+        if(y+blockH > 720){ doc.addPage(); y=54; }
+        // number chip
+        doc.setFillColor(230,242,243); doc.roundedRect(M,y,22,22,5,5,"F");
+        doc.setTextColor(teal[0],teal[1],teal[2]); doc.setFont("helvetica","bold"); doc.setFontSize(11);
+        doc.text(String(i+1), M+11, y+15, { align:"center" });
+        // title
+        doc.setTextColor(ink[0],ink[1],ink[2]); doc.setFont("helvetica","bold"); doc.setFontSize(13);
+        doc.text(s.title.toUpperCase(), M+32, y+15, { maxWidth:W-M*2-32 });
+        let by=y+38;
+        // thumbnail
+        if(hasImg){ try{ doc.addImage(s.thumb,"JPEG",M+32,by,imgW,imgH); }catch{} }
+        // body text
+        const tx = M+32+(hasImg?imgW+16:0);
+        doc.setFont("helvetica","normal"); doc.setFontSize(11); doc.setTextColor(soft[0],soft[1],soft[2]);
+        doc.text(lines, tx, by+11);
+        y += blockH;
+        // divider
+        doc.setDrawColor(231,227,223); doc.line(M,y-13,W-M,y-13);
+      });
+
+      // footer on last page
+      doc.setFontSize(9); doc.setTextColor(150,150,145);
+      doc.text("You matter.", W/2, 758, { align:"center" });
+
+      doc.save(`${(proj.name||"wayfinder-guide").replace(/[^a-z0-9-_]+/gi,"-").toLowerCase()}.pdf`);
+    }catch(err){ showToast("PDF build hit a snag: "+(err.message||err)); }
+  };
   const [vidPhase,setVidPhase]=useState("");   // "waking" | "rendering"
   const [vidPct,setVidPct]=useState(0);
   const timers=useRef([]);
@@ -974,12 +1218,12 @@ function Published({ proj,steps,scripts,recUrl,recBlob,dur,guides,showToast,onSa
   const clearTimers=()=>{ timers.current.forEach(clearTimeout); timers.current=[]; };
   useEffect(()=>()=>clearTimers(),[]);
   const makeVideo=async()=>{
-    if(!PROXY){ showToast("Set PROXY_URL first."); return; }
+    if(!PROXY){ showToast("Video service isn't configured yet."); return; }
     clearTimers();
     const started=Date.now();
     phaseRef.current="waking";
     setVidState("rendering"); setVidPhase("waking"); setVidPct(4);
-    setVidMsg("Waking the video engine. If it has been idle it can take up to a minute to start.");
+    setVidMsg("Getting things ready. The first video after a quiet spell can take up to a minute.");
     const tick=()=>{
       const secs=(Date.now()-started)/1000;
       if(secs>8 && phaseRef.current!=="rendering"){
@@ -991,7 +1235,7 @@ function Published({ proj,steps,scripts,recUrl,recBlob,dur,guides,showToast,onSa
     };
     tick();
     try{
-      const payload={ title:proj.name||"Wayfinder guide",
+      const payload={ title:proj.name||"Wayfinder guide", voice:voice,
         steps:steps.map((s,i)=>({ n:i+1, title:s.title, narration:scripts[s.id]??scripts[String(s.id)]??s.title })) };
       const r=await callRender(payload);
       const data=await r.json().catch(()=>({}));
@@ -1038,7 +1282,7 @@ function Published({ proj,steps,scripts,recUrl,recBlob,dur,guides,showToast,onSa
                 {s.thumb && <div style={{width:104,height:60,borderRadius:8,overflow:"hidden",flexShrink:0,border:"1px solid var(--sand-200)"}}><img src={s.thumb} alt={`Step ${i+1}`} style={{width:"100%",height:"100%",objectFit:"cover"}}/></div>}
                 <div style={{minWidth:0}}>
                   <div className="u" style={{fontWeight:700,fontSize:13,letterSpacing:".02em",marginBottom:3,color:"var(--sand-900)"}}>{s.title}</div>
-                  <div style={{fontSize:14,color:"var(--sand-600)",lineHeight:1.55}}>{scripts[s.id]??scripts[String(s.id)]??""}</div>
+                  <div style={{fontSize:14,color:"var(--sand-600)",lineHeight:1.55}}>{(details&&(details[s.id]??details[String(s.id)]))||scripts[s.id]||scripts[String(s.id)]||""}</div>
                 </div>
               </div>
             ))}
@@ -1050,6 +1294,15 @@ function Published({ proj,steps,scripts,recUrl,recBlob,dur,guides,showToast,onSa
             <input readOnly value="wayfinder.../g/share" style={{...inp,fontSize:12.5,color:"var(--sand-500)"}}/>
             <button onClick={copyLink} className="u" style={{...btn.primary,padding:"0 16px",fontSize:11,flexShrink:0}}>{copied?"Copied":"Copy"}</button>
           </div>
+          {/* voice picker */}
+          <div style={{border:"1px solid var(--sand-200)",borderRadius:12,padding:"12px 14px",marginBottom:8,background:"#fff"}}>
+            <label className="u" style={{display:"block",fontSize:10,fontWeight:700,letterSpacing:".08em",color:"var(--sand-500)",marginBottom:7}}>Narrator voice</label>
+            <select value={voice} onChange={e=>setVoice(e.target.value)} disabled={vidState==="rendering"}
+              style={{...inp,padding:"9px 11px",fontSize:14,cursor:vidState==="rendering"?"not-allowed":"pointer"}}>
+              {VOICES.map(v=><option key={v.id} value={v.id}>{v.label} ({v.note})</option>)}
+            </select>
+            {vidState==="done" && <div style={{fontSize:11,color:"var(--sand-500)",marginTop:6}}>Pick a different voice and make it again to hear another read.</div>}
+          </div>
           {/* live narrated video via proxy -> render service */}
           <div style={{border:"1px solid var(--sand-200)",borderRadius:12,padding:"12px 14px",marginBottom:8,background:vidState==="done"?"var(--pm-green-wash)":"#fff"}}>
             <div style={{display:"flex",alignItems:"center",gap:12}}>
@@ -1057,12 +1310,15 @@ function Published({ proj,steps,scripts,recUrl,recBlob,dur,guides,showToast,onSa
               <span style={{flex:1}}>
                 <span className="u" style={{display:"block",fontWeight:700,fontSize:12.5,letterSpacing:".03em",color:"var(--sand-900)"}}>Narrated video</span>
                 <span style={{display:"block",fontSize:12,color:"var(--sand-500)",marginTop:1}}>
-                  {vidState==="rendering"?(vidPhase==="waking"?"Waking the engine…":"Rendering…"):vidState==="done"?"Ready · Aria voice":vidState==="error"?"Failed":"MP4 with Aria voice"}
+                  {vidState==="rendering"?(vidPhase==="waking"?"Warming up…":"Rendering…"):vidState==="done"?`Ready · ${voice}`:vidState==="error"?"Failed":`Narrated MP4 · ${voice}`}
                 </span>
               </span>
               {vidState==="idle" && <button onClick={makeVideo} className="u" style={{...btn.primary,padding:"7px 13px",fontSize:11}}>Make it</button>}
               {vidState==="rendering" && <span className="num" style={{fontSize:12,fontWeight:700,color:"var(--teal-600)"}}>{Math.round(vidPct)}%</span>}
-              {vidState==="done" && <a href={vidUrl} target="_blank" rel="noopener" className="u" style={{...btn.amber,padding:"7px 13px",fontSize:11,textDecoration:"none"}}>Open</a>}
+              {vidState==="done" && <span style={{display:"flex",gap:6}}>
+                <button onClick={makeVideo} className="u" style={{...btn.ghost,padding:"7px 11px",fontSize:11}}>Redo</button>
+                <a href={vidUrl} target="_blank" rel="noopener" className="u" style={{...btn.amber,padding:"7px 13px",fontSize:11,textDecoration:"none"}}>Open</a>
+              </span>}
               {vidState==="error" && <button onClick={makeVideo} className="u" style={{...btn.ghost,padding:"7px 13px",fontSize:11}}>Retry</button>}
             </div>
             {vidState==="rendering" && (
@@ -1070,15 +1326,14 @@ function Published({ proj,steps,scripts,recUrl,recBlob,dur,guides,showToast,onSa
                 <div style={{height:6,borderRadius:6,background:"var(--sand-100)",overflow:"hidden"}}>
                   <div style={{width:`${vidPct}%`,height:"100%",background:vidPhase==="waking"?"var(--amber-500)":"var(--teal-500)",transition:"width .6s ease, background .3s ease"}}/>
                 </div>
-                {vidPhase==="waking" && <div style={{fontSize:11,color:"var(--amber-600)",marginTop:6,display:"flex",alignItems:"center",gap:6}}><span style={{width:6,height:6,borderRadius:"50%",background:"var(--amber-500)",animation:"pulseDot 1.1s infinite"}}/>Free tier goes to sleep after about 15 minutes idle. First one is slow, the rest are quick.</div>}
+                {vidPhase==="waking" && <div style={{fontSize:11,color:"var(--amber-600)",marginTop:6,display:"flex",alignItems:"center",gap:6}}><span style={{width:6,height:6,borderRadius:"50%",background:"var(--amber-500)",animation:"pulseDot 1.1s infinite"}}/>The first video after a quiet spell takes a little longer to start. The rest are quick.</div>}
               </div>
             )}
             {vidMsg && <div style={{fontSize:12,marginTop:8,color:vidState==="error"?"var(--pm-coral)":"var(--sand-600)"}}>{vidMsg}</div>}
           </div>
 
           {[[IcDownload,"Raw recording",".webm, right now",false,downloadRaw],
-            [IcDoc,"PDF guide","Formatted handout",true,()=>showToast("PDF export runs server-side, coming next.")],
-            [IcSlack,"Post to Slack","Share to a channel",true,()=>showToast("Slack posting activates once hosting is live.")]].map(([I,t,s,prev,fn],i)=>(
+            [IcDoc,"PDF guide","Formatted handout",false,makePDF]].map(([I,t,s,prev,fn],i)=>(
             <button key={i} onClick={fn} style={{display:"flex",alignItems:"center",gap:12,width:"100%",background:"#fff",border:"1px solid var(--sand-200)",borderRadius:12,padding:"12px 14px",cursor:"pointer",textAlign:"left",marginBottom:8,transition:"all .15s"}}
               onMouseEnter={e=>{e.currentTarget.style.borderColor="var(--teal-500)";e.currentTarget.style.background="var(--teal-wash)";}}
               onMouseLeave={e=>{e.currentTarget.style.borderColor="var(--sand-200)";e.currentTarget.style.background="#fff";}}>
@@ -1113,16 +1368,16 @@ function SettingsScreen({ apiKey,setApiKey,keyState,setKeyState,keyMsg,testKey }
         <Card>
           <CardHead icon={<IcKey size={18}/>} title="AI CONNECTION"
             right={<Pill ok={keyState==="valid"} label={keyState==="valid"?"Connected":keyState==="testing"?"Checking":"Not checked"}/>}/>
-          <p style={{fontSize:13.5,color:"var(--sand-600)",margin:"2px 0 14px"}}>Step detection and narration run through the Partners proxy. The API key lives on the server, so creators never paste or hold one. Use Test to confirm the app can reach it.</p>
+          <p style={{fontSize:13.5,color:"var(--sand-600)",margin:"2px 0 14px"}}>Step detection and narration are handled securely behind the scenes. Creators never paste or hold a key. Use Test to confirm the app is connected.</p>
           <div style={{display:"flex",gap:8,alignItems:"center"}}>
             <button onClick={testKey} className="u" style={{...btn.primary,padding:"9px 18px",fontSize:11,flexShrink:0}}>{keyState==="testing"?<Spinner sm/>:"Test connection"}</button>
-            <span className="num" style={{fontSize:12,color:"var(--sand-500)",wordBreak:"break-all"}}>{(CFG.PROXY_URL||"proxy not set")}</span>
+            <span className="num" style={{fontSize:12,color:"var(--sand-500)",wordBreak:"break-all"}}>{CFG.PROXY_URL?"Connected":"Not configured"}</span>
           </div>
           {keyMsg && <div style={{fontSize:13,marginTop:10,color:keyState==="valid"?"var(--pm-green)":keyState==="invalid"?"var(--pm-coral)":"var(--sand-600)"}}>{keyMsg}</div>}
         </Card>
         <Card>
           <CardHead icon={<IcLink size={18}/>} title="CONNECTIONS"/>
-          {[["Claude proxy","step detection + narration",!!CFG.PROXY_URL],["Firestore","shared library",FB_ON],["Render service","narrated video",!!CFG.PROXY_URL],["Cloudflare R2","video hosting",!!CFG.R2_UPLOAD_URL]].map(([a,b,on])=>(
+          {[["AI engine","step detection + narration",!!CFG.PROXY_URL],["Shared library","team guides",FB_ON],["Video builder","narrated video",!!CFG.PROXY_URL],["Media storage","video hosting",!!CFG.R2_UPLOAD_URL]].map(([a,b,on])=>(
             <div key={a} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"9px 0",borderBottom:"1px solid var(--sand-100)"}}>
               <span style={{display:"flex",alignItems:"center",gap:9}}>{dot(on)}<span className="u" style={{fontSize:12,fontWeight:700,letterSpacing:".04em"}}>{a}</span></span>
               <span style={{fontSize:12.5,color:"var(--sand-500)"}}>{on?b:"not connected"}</span>
@@ -1130,9 +1385,9 @@ function SettingsScreen({ apiKey,setApiKey,keyState,setKeyState,keyMsg,testKey }
           ))}
         </Card>
         <Card>
-          <CardHead icon={<IcUsers size={18}/>} title="TEAM ACCESS"/>
-          <p style={{fontSize:13.5,color:"var(--sand-600)",margin:"2px 0 6px"}}>Access is a shared PIN today. That's a stopgap, not real security. Ship SSO before Wayfinder leaves the training team.</p>
-          <div className="num" style={{fontSize:13,color:"var(--sand-800)"}}>Current PIN: <b>{CFG.ACCESS_PIN}</b></div>
+          <CardHead icon={<IcUsers size={18}/>} title="YOUR ACCOUNT"/>
+          <p style={{fontSize:13.5,color:"var(--sand-600)",margin:"2px 0 6px"}}>Accounts are limited to verified @{DOMAIN} email addresses. Recording is limited to training admins.</p>
+          <div style={{fontSize:13,color:"var(--sand-800)"}}>Signed in as <b>{(auth&&auth.currentUser&&auth.currentUser.email)||"unknown"}</b></div>
         </Card>
       </div>
     </div>
@@ -1149,7 +1404,7 @@ function Learn({ guides }){
     <div style={{maxWidth:1120,margin:"0 auto",padding:"36px 28px 90px",animation:"fadeUp .4s ease"}}>
       <Eyebrow>LEARN</Eyebrow>
       <H2>YOUR TRACKS</H2>
-      <p style={{fontSize:15,color:"var(--sand-600)",marginTop:8,marginBottom:24,maxWidth:560}}>Guides grouped into paths. Pick up where you left off. (Viewer experience, wired to the data model. The player arrives with the render service.)</p>
+      <p style={{fontSize:15,color:"var(--sand-600)",marginTop:8,marginBottom:24,maxWidth:560}}>Guides grouped into paths. Pick up where you left off. (Viewer experience, wired to the data model. The video player is coming soon.)</p>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))",gap:18}}>
         {tracks.map(t=>{
           const pct=Math.round(t.done/t.total*100);
