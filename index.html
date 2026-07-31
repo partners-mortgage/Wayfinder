@@ -111,6 +111,13 @@ async function postProxy(path, body){
 }
 async function callClaude(payload){ return postProxy("/claude", payload); }
 async function callRender(body){ return postProxy("/render", body); }
+async function callUploadUrl(body){ return postProxy("/upload-url", body); }
+/* GET through the proxy (used for job status polling) */
+async function getProxy(path){
+  let r = await fetch(PROXY + path, { headers: await authHeaders(false) });
+  if(r.status === 401){ r = await fetch(PROXY + path, { headers: await authHeaders(true) }); }
+  return r;
+}
 
 /* ---------- Icons ---------- */
 const Icon = ({ size = 20, fill = "none", stroke = 2, children, ...p }) => (
@@ -1254,34 +1261,79 @@ function Published({ proj,steps,scripts,details,voice,setVoice,recUrl,recBlob,du
   const makeVideo=async()=>{
     if(!PROXY){ showToast("Video service isn't configured yet."); return; }
     clearTimers();
-    const started=Date.now();
-    phaseRef.current="waking";
-    setVidState("rendering"); setVidPhase("waking"); setVidPct(4);
-    setVidMsg("Getting things ready. The first video after a quiet spell can take up to a minute.");
-    const tick=()=>{
-      const secs=(Date.now()-started)/1000;
-      if(secs>8 && phaseRef.current!=="rendering"){
-        phaseRef.current="rendering"; setVidPhase("rendering");
-        setVidMsg("Rendering your narrated video. Almost there.");
-      }
-      setVidPct(p=>{ const target=secs<8?55:88; const step=(target-p)*0.12+0.6; return Math.min(target, +(p+step).toFixed(1)); });
-      timers.current.push(setTimeout(tick,700));
-    };
-    tick();
+    setVidState("rendering"); setVidPhase("uploading"); setVidPct(2);
+    setVidMsg("Uploading your recording. This uses your real screen capture, so give it a moment.");
     try{
-      const payload={ title:proj.name||"Wayfinder guide", voice:voice,
-        steps:steps.map((s,i)=>({
-          n:i+1,
-          title:s.title,
-          narration:scripts[s.id]??scripts[String(s.id)]??s.title,
-          // the captured frame becomes the video's visual for this step
-          image:(s.thumb||"").split(",")[1]||""
-        })) };
-      const r=await callRender(payload);
-      const data=await r.json().catch(()=>({}));
-      if(!r.ok){ throw new Error(data.detail||data.error||`Render failed (${r.status})`); }
-      if(!data.url){ throw new Error("Render finished but no URL came back."); }
-      clearTimers(); setVidPct(100); setVidUrl(data.url); setVidState("done"); setVidPhase(""); setVidMsg("");
+      /* 1. Upload the actual recording so the renderer can use the real
+            footage. Ask the service for a one-time upload address, then
+            send the file straight to storage (no proxy hop for the video). */
+      let videoUrl = "";
+      if(recBlob){
+        const ur = await callUploadUrl({ name: proj.name||"recording", content_type: recBlob.type||"video/webm" });
+        const ud = await ur.json().catch(()=>({}));
+        if(!ur.ok || !ud.put_url) throw new Error(ud.detail||ud.error||"Couldn't start the upload.");
+        const put = await fetch(ud.put_url, {
+          method:"PUT",
+          headers:{ "Content-Type": recBlob.type||"video/webm" },
+          body: recBlob
+        });
+        if(!put.ok) throw new Error("Upload failed ("+put.status+"). If this keeps happening, storage may need a CORS rule for this site.");
+        videoUrl = ud.video_url || "";
+      }
+
+      /* 2. Start the render job. Returns immediately with a job id. */
+      setVidPhase("rendering"); setVidPct(8); setVidMsg("Building your narrated video.");
+      const payload = {
+        title: proj.name||"Wayfinder guide",
+        voice: voice,
+        video_url: videoUrl,
+        steps: steps.map((s,i)=>({
+          n: i+1,
+          title: s.title,
+          narration: scripts[s.id]??scripts[String(s.id)]??s.title,
+          t: Number(s.t)||0
+        }))
+      };
+      const r = await callRender(payload);
+      const d = await r.json().catch(()=>({}));
+      if(!r.ok) throw new Error(d.detail||d.error||("Render failed ("+r.status+")"));
+      if(!d.job_id) throw new Error("The service didn't return a job id.");
+
+      /* 3. Poll until it's ready. Progress comes from the service, so the
+            bar reflects real work instead of guessing. */
+      const started = Date.now();
+      const poll = async ()=>{
+        if(Date.now()-started > 15*60*1000){
+          setVidState("error"); setVidMsg("This is taking unusually long. Try again."); return;
+        }
+        let j = null;
+        try{
+          const jr = await getProxy("/job/"+d.job_id);
+          j = await jr.json().catch(()=>null);
+          if(jr.status===404){ throw new Error("The job expired. Please try again."); }
+        }catch(e){
+          // transient network hiccup: keep waiting rather than failing
+          timers.current.push(setTimeout(poll, 4000)); return;
+        }
+        if(!j){ timers.current.push(setTimeout(poll, 4000)); return; }
+
+        if(typeof j.pct === "number") setVidPct(Math.max(2, Math.min(99, j.pct)));
+        if(j.message) setVidMsg(j.message);
+        if(j.phase) setVidPhase(j.phase==="uploading"?"uploading":"rendering");
+
+        if(j.status === "done" && j.url){
+          clearTimers(); setVidPct(100); setVidUrl(j.url);
+          setVidState("done"); setVidPhase(""); setVidMsg("");
+          return;
+        }
+        if(j.status === "error"){
+          clearTimers(); setVidState("error"); setVidPhase(""); setVidPct(0);
+          setVidMsg(j.error || "Render failed."); return;
+        }
+        timers.current.push(setTimeout(poll, 3000));
+      };
+      timers.current.push(setTimeout(poll, 2500));
+
     }catch(err){ clearTimers(); setVidState("error"); setVidPhase(""); setVidPct(0); setVidMsg(String(err.message||err)); }
   };
 
@@ -1350,7 +1402,7 @@ function Published({ proj,steps,scripts,details,voice,setVoice,recUrl,recBlob,du
               <span style={{flex:1}}>
                 <span className="u" style={{display:"block",fontWeight:700,fontSize:12.5,letterSpacing:".03em",color:"var(--sand-900)"}}>Narrated video</span>
                 <span style={{display:"block",fontSize:12,color:"var(--sand-500)",marginTop:1}}>
-                  {vidState==="rendering"?(vidPhase==="waking"?"Warming up…":"Rendering…"):vidState==="done"?`Ready · ${voice}`:vidState==="error"?"Failed":`Narrated MP4 · ${voice}`}
+                  {vidState==="rendering"?(vidPhase==="uploading"?"Uploading recording…":"Rendering…"):vidState==="done"?`Ready · ${voice}`:vidState==="error"?"Failed":`Your recording · ${voice}`}
                 </span>
               </span>
               {vidState==="idle" && <button onClick={makeVideo} className="u" style={{...btn.primary,padding:"7px 13px",fontSize:11}}>Make it</button>}
@@ -1364,9 +1416,12 @@ function Published({ proj,steps,scripts,details,voice,setVoice,recUrl,recBlob,du
             {vidState==="rendering" && (
               <div style={{marginTop:10}}>
                 <div style={{height:6,borderRadius:6,background:"var(--sand-100)",overflow:"hidden"}}>
-                  <div style={{width:`${vidPct}%`,height:"100%",background:vidPhase==="waking"?"var(--amber-500)":"var(--teal-500)",transition:"width .6s ease, background .3s ease"}}/>
+                  <div style={{width:`${vidPct}%`,height:"100%",background:vidPhase==="uploading"?"var(--amber-500)":"var(--teal-500)",transition:"width .6s ease, background .3s ease"}}/>
                 </div>
-                {vidPhase==="waking" && <div style={{fontSize:11,color:"var(--amber-600)",marginTop:6,display:"flex",alignItems:"center",gap:6}}><span style={{width:6,height:6,borderRadius:"50%",background:"var(--amber-500)",animation:"pulseDot 1.1s infinite"}}/>The first video after a quiet spell takes a little longer to start. The rest are quick.</div>}
+                <div style={{fontSize:11,color:vidPhase==="uploading"?"var(--amber-600)":"var(--sand-500)",marginTop:6,display:"flex",alignItems:"center",gap:6}}>
+                  <span style={{width:6,height:6,borderRadius:"50%",background:vidPhase==="uploading"?"var(--amber-500)":"var(--teal-500)",animation:"pulseDot 1.1s infinite"}}/>
+                  Your real screen capture is used, so this takes a few minutes. You can leave this open.
+                </div>
               </div>
             )}
             {vidMsg && <div style={{fontSize:12,marginTop:8,color:vidState==="error"?"var(--pm-coral)":"var(--sand-600)"}}>{vidMsg}</div>}
