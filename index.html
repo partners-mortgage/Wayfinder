@@ -495,7 +495,7 @@ Return ONLY a JSON array, 3 to 8 items, sorted by start, like:
       setAnalyzeMsg("Grabbing a screenshot for each step…"); setAnalyzePct(85);
       const withThumbs=[];
       for(let i=0;i<proposed.length;i++){
-        const thumb = await captureAt(v, Math.min(proposed[i].start+0.25, D-0.1), 640, 0.7);
+        const thumb = await captureAt(v, Math.min(proposed[i].start+0.25, D-0.1), 1100, 0.72);
         withThumbs.push({ id:i+1, title:proposed[i].title, t:proposed[i].start, thumb, conf:0.9 });
       }
       setAnalyzePct(100);
@@ -505,7 +505,7 @@ Return ONLY a JSON array, 3 to 8 items, sorted by start, like:
       try{
         const v = await loadVideo(url); const D=v.duration||1; setDur(D);
         const k=4, out=[];
-        for(let i=0;i<k;i++){ const t=+(i*D/k).toFixed(2); out.push({ id:i+1, title:`Step ${i+1}`, t, thumb:await captureAt(v,Math.min(t+0.2,D-0.1),640,0.7), conf:1 }); }
+        for(let i=0;i<k;i++){ const t=+(i*D/k).toFixed(2); out.push({ id:i+1, title:`Step ${i+1}`, t, thumb:await captureAt(v,Math.min(t+0.2,D-0.1),1100,0.72), conf:1 }); }
         setSteps(out);
       }catch{ setSteps([]); }
       setStage("steps");
@@ -974,7 +974,7 @@ function Steps({ steps,setSteps,busy,recUrl,dur,analyzeErr,onGen,onBack }){
   const vidRef=useRef(null);
 
   useEffect(()=>{ if(!recUrl) return; const v=document.createElement("video"); v.src=recUrl; v.muted=true; v.playsInline=true; v.preload="auto"; vidRef.current=v; },[recUrl]);
-  const capture=(t,w=640,q=0.7)=> new Promise((res)=>{ const v=vidRef.current; if(!v){res("");return;}
+  const capture=(t,w=1100,q=0.72)=> new Promise((res)=>{ const v=vidRef.current; if(!v){res("");return;}
     const on=()=>{ v.removeEventListener("seeked",on); const scale=w/(v.videoWidth||w),h=Math.round((v.videoHeight||w)*scale);
       const c=document.createElement("canvas"); c.width=w; c.height=h||360; try{ c.getContext("2d").drawImage(v,0,0,c.width,c.height); res(c.toDataURL("image/jpeg",q)); }catch{ res(""); } };
     v.addEventListener("seeked",on); v.currentTime=Math.max(0,Math.min(t,(v.duration||t)-0.05)); });
@@ -1168,53 +1168,79 @@ function Published({ proj,steps,scripts,details,voice,setVoice,recUrl,recBlob,du
       const JS = window.jspdf && window.jspdf.jsPDF;
       if(!JS){ showToast("PDF library still loading, try again in a second."); return; }
       const doc = new JS({ unit:"pt", format:"letter" });
-      const W=612, M=54; let y=0;
-      const teal=[0,110,120], deep=[6,47,52], sand=[90,120], ink=[36,31,29], soft=[90,90,90], amber=[255,172,39];
-      // cover band
-      doc.setFillColor(deep[0],deep[1],deep[2]); doc.rect(0,0,W,150,"F");
-      doc.setFillColor(amber[0],amber[1],amber[2]); doc.rect(M,58,34,5,"F");
-      doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(22);
-      doc.text((proj.name||"Training Guide").toUpperCase(), M, 92, { maxWidth:W-M*2 });
-      doc.setFont("helvetica","normal"); doc.setFontSize(10.5); doc.setTextColor(210,210,205);
-      doc.text(proj.desc||"A Partners Mortgage training guide", M, 116, { maxWidth:W-M*2 });
-      doc.setFontSize(8.5); doc.setTextColor(180,180,175);
-      doc.text("WAYFINDER  ·  PARTNERS MORTGAGE", M, 138);
-      y=182;
+      const W=612, H=792, M=56, CONTENT=W-M*2;
+      const TEAL=[0,110,120], DEEP=[6,47,52], AMBER=[255,172,39];
+      const INK=[36,31,29], SOFT=[95,88,84], LINE=[228,223,218];
+
+      /* ---------- cover ---------- */
+      doc.setFillColor(DEEP[0],DEEP[1],DEEP[2]); doc.rect(0,0,W,H,"F");
+      doc.setFillColor(AMBER[0],AMBER[1],AMBER[2]); doc.rect(M,300,48,6,"F");
+      doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(34);
+      let ty=348;
+      doc.splitTextToSize((proj.name||"Training Guide").toUpperCase(), CONTENT).forEach(l=>{ doc.text(l,M,ty); ty+=40; });
+      if(proj.desc){
+        doc.setFont("helvetica","normal"); doc.setFontSize(13); doc.setTextColor(205,214,213);
+        doc.text(doc.splitTextToSize(proj.desc, CONTENT-40), M, ty+6);
+      }
+      doc.setFont("helvetica","normal"); doc.setFontSize(9); doc.setTextColor(150,168,168);
+      doc.text("WAYFINDER   \u00b7   A PARTNERS MORTGAGE TOOL", M, H-90);
+      doc.setFont("helvetica","italic"); doc.setFontSize(12);
+      doc.setTextColor(AMBER[0],AMBER[1],AMBER[2]);
+      doc.text("You matter.", M, H-66);
+
+      /* ---------- steps ---------- */
+      const IMG_W=372, pageTop=72, pageBottom=H-64;
+      let page=1;
+      doc.addPage(); page++;
+      let y=pageTop;
+      const footer=()=>{
+        doc.setFont("helvetica","normal"); doc.setFontSize(8.5); doc.setTextColor(165,158,152);
+        doc.text("WAYFINDER  \u00b7  "+(proj.name||"Training guide"), M, H-40);
+        doc.text(String(page-1), W-M, H-40, { align:"right" });
+      };
+      footer();
 
       steps.forEach((s,i)=>{
-        const detail = (details&&(details[s.id]??details[String(s.id)]))||"";
-        const narr = scripts[s.id]??scripts[String(s.id)]??"";
-        const body = detail.trim() || narr;
-        // estimate block height
-        const hasImg = !!s.thumb;
-        const imgH = hasImg?92:0, imgW=hasImg?164:0;
-        doc.setFont("helvetica","normal"); doc.setFontSize(11);
-        const textW = W-M*2-(hasImg?imgW+16:0);
-        const lines = doc.splitTextToSize(body||" ", textW);
-        const blockH = Math.max(imgH, 24+lines.length*15) + 26;
-        if(y+blockH > 720){ doc.addPage(); y=54; }
-        // number chip
-        doc.setFillColor(230,242,243); doc.roundedRect(M,y,22,22,5,5,"F");
-        doc.setTextColor(teal[0],teal[1],teal[2]); doc.setFont("helvetica","bold"); doc.setFontSize(11);
-        doc.text(String(i+1), M+11, y+15, { align:"center" });
-        // title
-        doc.setTextColor(ink[0],ink[1],ink[2]); doc.setFont("helvetica","bold"); doc.setFontSize(13);
-        doc.text(s.title.toUpperCase(), M+32, y+15, { maxWidth:W-M*2-32 });
-        let by=y+38;
-        // thumbnail
-        if(hasImg){ try{ doc.addImage(s.thumb,"JPEG",M+32,by,imgW,imgH); }catch{} }
-        // body text
-        const tx = M+32+(hasImg?imgW+16:0);
-        doc.setFont("helvetica","normal"); doc.setFontSize(11); doc.setTextColor(soft[0],soft[1],soft[2]);
-        doc.text(lines, tx, by+11);
-        y += blockH;
-        // divider
-        doc.setDrawColor(231,227,223); doc.line(M,y-13,W-M,y-13);
-      });
+        const detail=(details&&(details[s.id]??details[String(s.id)]))||"";
+        const narr=scripts[s.id]??scripts[String(s.id)]??"";
+        const body=(detail.trim()||narr||"").trim();
 
-      // footer on last page
-      doc.setFontSize(9); doc.setTextColor(150,150,145);
-      doc.text("You matter.", W/2, 758, { align:"center" });
+        const imgH = s.thumb ? Math.round(IMG_W*0.625) : 0;
+        doc.setFont("helvetica","normal"); doc.setFontSize(10.5);
+        const lines = doc.splitTextToSize(body||" ", CONTENT);
+        const blockH = 26 + (imgH?imgH+14:0) + lines.length*14.5 + 30;
+        if(y+blockH > pageBottom){ doc.addPage(); page++; y=pageTop; footer(); }
+
+        doc.setFillColor(230,242,243); doc.circle(M+10,y+2,11,"F");
+        doc.setFont("helvetica","bold"); doc.setFontSize(11);
+        doc.setTextColor(TEAL[0],TEAL[1],TEAL[2]);
+        doc.text(String(i+1), M+10, y+6, { align:"center" });
+
+        doc.setFont("helvetica","bold"); doc.setFontSize(13.5);
+        doc.setTextColor(INK[0],INK[1],INK[2]);
+        let tyy=y+7;
+        doc.splitTextToSize(s.title||"", CONTENT-34).forEach(l=>{ doc.text(l,M+30,tyy); tyy+=17; });
+        let cursor=Math.max(y+26, tyy+4);
+
+        if(s.thumb){
+          try{
+            doc.addImage(s.thumb,"JPEG",M+30,cursor,IMG_W,imgH);
+            doc.setDrawColor(LINE[0],LINE[1],LINE[2]); doc.setLineWidth(0.7);
+            doc.rect(M+30,cursor,IMG_W,imgH);
+          }catch(e){}
+          cursor += imgH+14;
+        }
+
+        doc.setFont("helvetica","normal"); doc.setFontSize(10.5);
+        doc.setTextColor(SOFT[0],SOFT[1],SOFT[2]);
+        lines.forEach(l=>{ doc.text(l,M+30,cursor+3); cursor+=14.5; });
+
+        y = cursor+16;
+        if(i<steps.length-1){
+          doc.setDrawColor(LINE[0],LINE[1],LINE[2]); doc.setLineWidth(0.8);
+          doc.line(M,y,W-M,y); y+=22;
+        }
+      });
 
       doc.save(`${(proj.name||"wayfinder-guide").replace(/[^a-z0-9-_]+/gi,"-").toLowerCase()}.pdf`);
     }catch(err){ showToast("PDF build hit a snag: "+(err.message||err)); }
@@ -1244,7 +1270,13 @@ function Published({ proj,steps,scripts,details,voice,setVoice,recUrl,recBlob,du
     tick();
     try{
       const payload={ title:proj.name||"Wayfinder guide", voice:voice,
-        steps:steps.map((s,i)=>({ n:i+1, title:s.title, narration:scripts[s.id]??scripts[String(s.id)]??s.title })) };
+        steps:steps.map((s,i)=>({
+          n:i+1,
+          title:s.title,
+          narration:scripts[s.id]??scripts[String(s.id)]??s.title,
+          // the captured frame becomes the video's visual for this step
+          image:(s.thumb||"").split(",")[1]||""
+        })) };
       const r=await callRender(payload);
       const data=await r.json().catch(()=>({}));
       if(!r.ok){ throw new Error(data.detail||data.error||`Render failed (${r.status})`); }
