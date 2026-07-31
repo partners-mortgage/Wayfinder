@@ -698,15 +698,37 @@ function FlowStrip({ steps, active, onExit }){
 function Cover({ title, status, mins, frame, size="card" }){
   const titleSize = size==="feature"?20:size==="share"?40:15;
   const pad = size==="share"?"0 34px 26px":size==="feature"?"0 22px 18px":"0 16px 14px";
+  const hasPhoto = !!frame;
   return (
-    <div style={{position:"relative",aspectRatio:"16/9",width:"100%",overflow:"hidden",borderRadius:size==="card"?"14px 14px 0 0":14,background:"var(--teal-900)",display:"flex",flexDirection:"column",justifyContent:"flex-end"}}>
-      {frame && <img src={frame} alt="" style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover"}}/>}
-      <div style={{position:"absolute",inset:0,background:"linear-gradient(150deg, rgba(0,129,141,.5) 0%, rgba(6,47,52,.15) 60%)"}}/>
-      <div style={{position:"absolute",inset:0,backgroundImage:`url("data:image/svg+xml,${ROOF}")`,backgroundSize:"72px 72px"}}/>
+    <div style={{position:"relative",aspectRatio:"16/9",width:"100%",overflow:"hidden",
+      borderRadius:size==="card"?"14px 14px 0 0":14,background:"var(--teal-900)",
+      display:"flex",flexDirection:"column",justifyContent:"flex-end"}}>
+
+      {/* the opening frame of the recording */}
+      {hasPhoto && <img src={frame} alt="" style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover"}}/>}
+
+      {hasPhoto ? (
+        <>
+          {/* fade the picture out toward the bottom so the title always reads */}
+          <div style={{position:"absolute",inset:0,background:
+            "linear-gradient(to bottom, rgba(6,47,52,.10) 0%, rgba(6,47,52,.30) 38%, rgba(6,47,52,.72) 72%, rgba(6,47,52,.94) 100%)"}}/>
+          {/* whisper of brand teal over the whole thing */}
+          <div style={{position:"absolute",inset:0,background:"rgba(0,129,141,.14)",mixBlendMode:"multiply"}}/>
+        </>
+      ) : (
+        <>
+          {/* no frame captured: fall back to the teal roofline treatment */}
+          <div style={{position:"absolute",inset:0,background:"linear-gradient(150deg, rgba(0,129,141,.5) 0%, rgba(6,47,52,.15) 60%)"}}/>
+          <div style={{position:"absolute",inset:0,backgroundImage:`url("data:image/svg+xml,${ROOF}")`,backgroundSize:"72px 72px"}}/>
+        </>
+      )}
+
       <div style={{position:"relative",padding:pad}}>
         <div style={{width:32,height:4,borderRadius:4,background:"var(--amber-500)",marginBottom:size==="share"?16:10}}/>
-        <div className="u" style={{fontWeight:900,color:"#fff",fontSize:titleSize,lineHeight:1.12,letterSpacing:".01em",textShadow:frame?"0 1px 10px rgba(0,0,0,.4)":"none"}}>{title||"UNTITLED GUIDE"}</div>
+        <div className="u" style={{fontWeight:900,color:"#fff",fontSize:titleSize,lineHeight:1.12,letterSpacing:".01em",
+          textShadow:hasPhoto?"0 2px 14px rgba(0,0,0,.55)":"none"}}>{title||"UNTITLED GUIDE"}</div>
       </div>
+
       {status && <span className="u" style={{position:"absolute",top:12,right:12,fontSize:9.5,fontWeight:800,letterSpacing:".08em",padding:"4px 9px",borderRadius:100,
         background:status==="Published"?"var(--amber-500)":"rgba(255,255,255,.92)",color:status==="Published"?"var(--sand-900)":"var(--sand-800)"}}>{status}</span>}
       {mins!=null && <span className="num" style={{position:"absolute",bottom:12,right:12,fontSize:11,fontWeight:600,padding:"3px 8px",borderRadius:100,background:"rgba(6,47,52,.7)",color:"#fff"}}>{mins} min</span>}
@@ -1252,7 +1274,8 @@ function Published({ proj,steps,scripts,details,voice,setVoice,recUrl,recBlob,du
       doc.save(`${(proj.name||"wayfinder-guide").replace(/[^a-z0-9-_]+/gi,"-").toLowerCase()}.pdf`);
     }catch(err){ showToast("PDF build hit a snag: "+(err.message||err)); }
   };
-  const [vidPhase,setVidPhase]=useState("");   // "waking" | "rendering"
+  const [showRaw,setShowRaw]=useState(false);
+  const [vidPhase,setVidPhase]=useState("");   // "uploading" | "rendering"
   const [vidPct,setVidPct]=useState(0);
   const timers=useRef([]);
   const phaseRef=useRef("waking");
@@ -1386,6 +1409,28 @@ function Published({ proj,steps,scripts,details,voice,setVoice,recUrl,recBlob,du
             <input readOnly value="wayfinder.../g/share" style={{...inp,fontSize:12.5,color:"var(--sand-500)"}}/>
             <button onClick={copyLink} className="u" style={{...btn.primary,padding:"0 16px",fontSize:11,flexShrink:0}}>{copied?"Copied":"Copy"}</button>
           </div>
+          {/* finished video plays right here */}
+          {vidState==="done" && vidUrl && (
+            <div style={{marginBottom:10,borderRadius:12,overflow:"hidden",border:"1px solid var(--sand-200)",background:"var(--teal-900)"}}>
+              <video src={vidUrl} controls playsInline preload="metadata"
+                style={{width:"100%",display:"block",aspectRatio:"16/9",background:"var(--teal-900)"}}/>
+            </div>
+          )}
+          {/* preview the raw capture before rendering */}
+          {vidState!=="done" && recUrl && (
+            <div style={{marginBottom:10}}>
+              {showRaw ? (
+                <div style={{borderRadius:12,overflow:"hidden",border:"1px solid var(--sand-200)",background:"var(--teal-900)"}}>
+                  <video src={recUrl} controls playsInline preload="metadata"
+                    style={{width:"100%",display:"block",aspectRatio:"16/9",background:"var(--teal-900)"}}/>
+                </div>
+              ) : (
+                <button onClick={()=>setShowRaw(true)} className="u" style={{...btn.ghost,width:"100%",justifyContent:"center",fontSize:11}}>
+                  <IcPlay size={13}/> Watch your recording
+                </button>
+              )}
+            </div>
+          )}
           {/* voice picker */}
           <div style={{border:"1px solid var(--sand-200)",borderRadius:12,padding:"12px 14px",marginBottom:8,background:"#fff"}}>
             <label className="u" style={{display:"block",fontSize:10,fontWeight:700,letterSpacing:".08em",color:"var(--sand-500)",marginBottom:7}}>Narrator voice</label>
