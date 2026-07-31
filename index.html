@@ -92,20 +92,25 @@ const isAllowedEmail = (email)=> !DOMAIN || String(email||"").toLowerCase().ends
 
 /* ---------- proxy helpers (send the signed-in user's token) ---------- */
 const PROXY = (CFG.PROXY_URL||"").replace(/\/+$/,"");
-async function authHeaders(){
+async function authHeaders(force){
   const h = { "Content-Type":"application/json" };
   try{
     const u = auth && auth.currentUser;
-    if(u){ const t = await u.getIdToken(); h["Authorization"] = "Bearer " + t; }
+    if(u){ const t = await u.getIdToken(!!force); h["Authorization"] = "Bearer " + t; }
   }catch{}
   return h;
 }
-async function callClaude(payload){
-  return fetch(PROXY + "/claude", { method:"POST", headers: await authHeaders(), body: JSON.stringify(payload) });
+/* Post to the proxy. If it answers 401, the token may be stale (for example
+   it was issued before the email was verified), so refresh once and retry. */
+async function postProxy(path, body){
+  let r = await fetch(PROXY + path, { method:"POST", headers: await authHeaders(false), body: JSON.stringify(body) });
+  if(r.status === 401){
+    r = await fetch(PROXY + path, { method:"POST", headers: await authHeaders(true), body: JSON.stringify(body) });
+  }
+  return r;
 }
-async function callRender(body){
-  return fetch(PROXY + "/render", { method:"POST", headers: await authHeaders(), body: JSON.stringify(body) });
-}
+async function callClaude(payload){ return postProxy("/claude", payload); }
+async function callRender(body){ return postProxy("/render", body); }
 
 /* ---------- Icons ---------- */
 const Icon = ({ size = 20, fill = "none", stroke = 2, children, ...p }) => (
@@ -163,7 +168,7 @@ const MODEL = "claude-opus-4-6";
 const LS_KEY = "wf_apikey";
 const LS_GUIDES = "wf_guides";
 const SS_UNLOCK = "wf_unlocked";
-const CATS = ["Pricing","LOS","Documents","Compliance","Onboarding"];
+const CATS = ["Pricing","LOS","Web Tools","Sales Tools","Documents","Compliance","Onboarding"];
 const VOICES = [
   { id:"Danielle", label:"Danielle", note:"warm, natural" },
   { id:"Joanna",   label:"Joanna",   note:"clear, classic" },
@@ -216,6 +221,9 @@ function App(){
         return;
       }
       if(!u.emailVerified){ setState({ phase:"unverified", user:u }); return; }
+      // Mint a FRESH token. A token minted before the verification link was
+      // clicked still carries email_verified:false, which the proxy rejects.
+      try{ await u.getIdToken(true); }catch{}
       setState({ phase:"in", user:u, email, admin:isAdminEmail(email) });
     });
     return ()=>unsub();
