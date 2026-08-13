@@ -407,6 +407,22 @@ function Studio({ me }){
   },[]);
   useEffect(()=>{ if(!FB_ON) saveLocal(guides); },[guides]);
 
+  /* A shared link looks like ...?g=<guideId>. Once the library has loaded,
+     open that guide. Runs once, and clears the parameter so a refresh does
+     not reopen it unexpectedly. */
+  const deepLinkDone = useRef(false);
+  useEffect(()=>{
+    if(deepLinkDone.current || loadingLib) return;
+    let want = null;
+    try{ want = new URLSearchParams(location.search).get("g"); }catch{}
+    if(!want) { deepLinkDone.current = true; return; }
+    deepLinkDone.current = true;
+    const g = guides.find(x=>x.id===want);
+    if(g){ setWatching(g); }
+    else { showToast("That guide could not be found. It may have been removed."); }
+    try{ history.replaceState({}, "", location.origin+location.pathname); }catch{}
+  },[loadingLib, guides]);
+
   /* ---------- ENGINE (proxy-routed) ---------- */
   const testKey = async ()=>{
     setKeyState("testing"); setKeyMsg("");
@@ -623,7 +639,7 @@ Write a fuller written explanation for the PDF version of this step: 2 to 4 sent
       <Header stage={stage} setStage={setStage} onRecord={newGuide} me={me}/>
       {inFlow && <FlowStrip steps={FLOW} active={stageIndex} onExit={()=>setStage("library")}/>}
 
-      {stage==="library" && <Library {...{guides,loadingLib,onNew:newGuide,onDelete:deleteGuide,setStage,me,onWatch:setWatching}}/>}
+      {stage==="library" && <Library {...{guides,loadingLib,onNew:newGuide,onDelete:deleteGuide,setStage,me,onWatch:setWatching,onShared:()=>showToast("Share link copied.")}}/>}
       {stage==="learn" && <Learn guides={guides}/>}
       {stage==="settings" && <SettingsScreen {...{apiKey,setApiKey,keyState,setKeyState,keyMsg,testKey}}/>}
 
@@ -635,7 +651,7 @@ Write a fuller written explanation for the PDF version of this step: 2 to 4 sent
           {stage==="steps" && <Steps {...{steps,setSteps,busy,recUrl,dur,analyzeErr,onGen:genScripts,onBack:()=>setStage("setup")}}/>}
           {stage==="editing" && <Editing {...{steps,scripts,setScripts,details,setDetails,expandDetail,genErr,onNext:goGenerate,onBack:()=>setStage("steps")}}/>}
           {stage==="generating" && <Generating/>}
-          {stage==="preview" && <Published {...{proj,steps,scripts,details,voice,setVoice,recUrl,recBlob,dur,guides,showToast,onSave:saveToLibrary,onVideoReady:attachVideo,onDone:()=>setStage("library")}}/>}
+          {stage==="preview" && <Published {...{proj,steps,scripts,details,voice,setVoice,recUrl,recBlob,dur,guides,showToast,onSave:saveToLibrary,onVideoReady:attachVideo,guideId,onDone:()=>setStage("library")}}/>}
         </main>
       )}
       {watching && <Watch guide={watching} onClose={()=>setWatching(null)}/>}
@@ -767,7 +783,7 @@ function Cover({ title, status, mins, frame, size="card" }){
 }
 
 /* ================= Library ================= */
-function Library({ guides, loadingLib, onNew, onDelete, setStage, me, onWatch }){
+function Library({ guides, loadingLib, onNew, onDelete, setStage, me, onWatch, onShared }){
   const [q,setQ] = useState("");
   const [cat,setCat] = useState("All");
   const [sort,setSort] = useState("Newest");
@@ -849,7 +865,10 @@ function Library({ guides, loadingLib, onNew, onDelete, setStage, me, onWatch })
                 </div>
                 <div style={{display:"flex",gap:10}}>
                   <button onClick={()=>onWatch&&onWatch(featured)} className="u" style={{...btn.primary,padding:"10px 18px",fontSize:12}}><IcPlay size={14}/> Watch it</button>
-                  <button className="u" style={{...btn.ghost,padding:"10px 18px",fontSize:12}}><IcLink size={14}/> Share</button>
+                  <button onClick={()=>{
+                    const link = `${location.origin}${location.pathname}?g=${encodeURIComponent(featured.id)}`;
+                    try{ navigator.clipboard.writeText(link); onShared && onShared(); }catch{}
+                  }} className="u" style={{...btn.ghost,padding:"10px 18px",fontSize:12}}><IcLink size={14}/> Share</button>
                 </div>
               </div>
             </div>
@@ -892,6 +911,10 @@ function Library({ guides, loadingLib, onNew, onDelete, setStage, me, onWatch })
                     </span>
                     <span style={{display:"flex",gap:4}}>
                       <button title="Watch" onClick={()=>onWatch&&onWatch(g)} style={iconBtn()}><IcPlay size={14}/></button>
+                      <button title="Copy share link" onClick={()=>{
+                        const link = `${location.origin}${location.pathname}?g=${encodeURIComponent(g.id)}`;
+                        try{ navigator.clipboard.writeText(link); onShared && onShared(); }catch{}
+                      }} style={iconBtn()}><IcLink size={14}/></button>
                       {me && me.admin && <button title="Delete" onClick={()=>onDelete(g.id)} style={iconBtn(false,true)}><IcTrash size={14}/></button>}
                     </span>
                   </div>
@@ -1213,7 +1236,7 @@ function Generating(){
 }
 
 /* ================= Published (reward) ================= */
-function Published({ proj,steps,scripts,details,voice,setVoice,recUrl,recBlob,dur,guides,showToast,onSave,onVideoReady,onDone }){
+function Published({ proj,steps,scripts,details,voice,setVoice,recUrl,recBlob,dur,guides,showToast,onSave,onVideoReady,guideId,onDone }){
   const [saved,setSaved]=useState(false);
   const [copied,setCopied]=useState(false);
   const [vidState,setVidState]=useState("idle"); // idle | rendering | done | error
@@ -1223,7 +1246,21 @@ function Published({ proj,steps,scripts,details,voice,setVoice,recUrl,recBlob,du
   const mins=Math.max(1,Math.round((dur||steps.length*40)/60));
   const myCount=(guides.filter(g=>g.author==="You").length)+1;
   const downloadRaw=()=>{ if(!recBlob)return; const a=document.createElement("a"); a.href=URL.createObjectURL(recBlob); a.download=`${(proj.name||"recording").replace(/[^a-z0-9-_]+/gi,"-").toLowerCase()}.webm`; a.click(); };
-  const copyLink=()=>{ try{ navigator.clipboard.writeText("https://wayfinder.partnersmortgage.com/g/"+Date.now().toString(36)); }catch{} setCopied(true); setTimeout(()=>setCopied(false),2000); };
+  /* A real link back into this app, pointing at this guide. Recipients sign
+     in with their Partners account and land on the guide. */
+  const shareLink = guideId
+    ? `${location.origin}${location.pathname}?g=${encodeURIComponent(guideId)}`
+    : "";
+  const copyLink=async()=>{
+    if(!shareLink){ showToast("The link appears once the guide is saved."); return; }
+    try{ await navigator.clipboard.writeText(shareLink); }
+    catch{
+      // clipboard can be blocked; fall back to selecting the field
+      const el=document.getElementById("wf-share-input");
+      if(el){ el.removeAttribute("readonly"); el.select(); document.execCommand&&document.execCommand("copy"); el.setAttribute("readonly","readonly"); }
+    }
+    setCopied(true); setTimeout(()=>setCopied(false),2000);
+  };
   const makePDF=()=>{
     try{
       const JS = window.jspdf && window.jspdf.jsPDF;
@@ -1439,8 +1476,17 @@ function Published({ proj,steps,scripts,details,voice,setVoice,recUrl,recBlob,du
         <div>
           <div className="u" style={{fontSize:11,fontWeight:700,letterSpacing:".12em",color:"var(--sand-500)",marginBottom:12}}>SEND IT OUT</div>
           <div style={{display:"flex",gap:8,marginBottom:8}}>
-            <input readOnly value="wayfinder.../g/share" style={{...inp,fontSize:12.5,color:"var(--sand-500)"}}/>
-            <button onClick={copyLink} className="u" style={{...btn.primary,padding:"0 16px",fontSize:11,flexShrink:0}}>{copied?"Copied":"Copy"}</button>
+            <input id="wf-share-input" readOnly value={shareLink||"Saving to the library…"}
+              onClick={e=>e.target.select()}
+              style={{...inp,fontSize:12,color:shareLink?"var(--sand-800)":"var(--sand-500)"}}/>
+            <button onClick={copyLink} className="u" style={{...btn.primary,padding:"0 16px",fontSize:11,flexShrink:0,opacity:shareLink?1:.5}}>{copied?"Copied":"Copy"}</button>
+          </div>
+          <div style={{fontSize:11,color:"var(--sand-500)",marginBottom:12,lineHeight:1.5}}>
+            Opens in Wayfinder. Anyone with a Partners account can watch it.
+            {vidState==="done" && vidUrl && <>
+              {" "}<a href={vidUrl} target="_blank" rel="noopener" style={{color:"var(--teal-600)"}}>Direct video file</a>
+              {" "}(plays without signing in).
+            </>}
           </div>
           {/* finished video plays right here */}
           {vidState==="done" && vidUrl && (
