@@ -377,6 +377,8 @@ function Studio({ me }){
   const [scripts,setScripts] = useState({});
   const [details,setDetails] = useState({});
   const [voice,setVoice] = useState("Danielle");
+  const [guideId,setGuideId] = useState(null);
+  const [watching,setWatching] = useState(null);
   const [genErr,setGenErr] = useState("");
   const [busy,setBusy] = useState(false);
   const [toast,setToast] = useState(null);
@@ -569,15 +571,42 @@ Write a fuller written explanation for the PDF version of this step: 2 to 4 sent
 
   const saveToLibrary = async ()=>{
     const cover = steps.find(s=>s.thumb)?.thumb || "";
+    /* Store the written steps as text so a guide can be read and watched
+       later. Thumbnails are deliberately left out: they are large and would
+       risk the document size limit. */
+    const guideSteps = steps.map((st,i)=>({
+      n:i+1, title:st.title||"",
+      narration:scripts[st.id]??scripts[String(st.id)]??"",
+      detail:(details&&(details[st.id]??details[String(st.id)]))||""
+    }));
     const entry = { name:proj.name||"Untitled guide", desc:proj.desc||"", cat:proj.cat||"Pricing",
       steps:steps.length, mins:Math.max(1,Math.round((dur||steps.length*40)/60)), status:"Published",
-      updated:Date.now(), plays:0, pct:0, author:(me&&me.email)||"You", coverFrame:cover };
+      updated:Date.now(), plays:0, pct:0, author:(me&&me.email)||"You", coverFrame:cover,
+      videoUrl:"", guideSteps };
     if(FB_ON && db){
-      try{ await db.collection("guides").add(entry); showToast(`"${entry.name}" published to the library.`); }
-      catch{ showToast("Couldn't reach Firestore. Check your config and rules."); }
+      try{
+        const ref = await db.collection("guides").add(entry);
+        setGuideId(ref.id);
+        showToast(`"${entry.name}" published to the library.`);
+      }
+      catch{ showToast("Couldn't save to the library. Check your access."); }
     } else {
-      setGuides([{ id:"g-"+Date.now(), ...entry }, ...guides]);
+      const lid = "g-"+Date.now();
+      setGuideId(lid);
+      setGuides([{ id:lid, ...entry }, ...guides]);
       showToast(`"${entry.name}" published (local test mode).`);
+    }
+  };
+
+  /* Once a video exists, attach it to the saved guide so the library can
+     play it. Without this the library has nothing to open. */
+  const attachVideo = async (url)=>{
+    if(!url) return;
+    if(FB_ON && db && guideId){
+      try{ await db.collection("guides").doc(guideId).update({ videoUrl:url }); }
+      catch{ showToast("Video is ready, but saving the link to the library failed."); }
+    } else if(guideId){
+      setGuides(gs=>gs.map(g=>g.id===guideId?{...g,videoUrl:url}:g));
     }
   };
   const deleteGuide = async (id)=>{
@@ -594,7 +623,7 @@ Write a fuller written explanation for the PDF version of this step: 2 to 4 sent
       <Header stage={stage} setStage={setStage} onRecord={newGuide} me={me}/>
       {inFlow && <FlowStrip steps={FLOW} active={stageIndex} onExit={()=>setStage("library")}/>}
 
-      {stage==="library" && <Library {...{guides,loadingLib,onNew:newGuide,onDelete:deleteGuide,setStage,me}}/>}
+      {stage==="library" && <Library {...{guides,loadingLib,onNew:newGuide,onDelete:deleteGuide,setStage,me,onWatch:setWatching}}/>}
       {stage==="learn" && <Learn guides={guides}/>}
       {stage==="settings" && <SettingsScreen {...{apiKey,setApiKey,keyState,setKeyState,keyMsg,testKey}}/>}
 
@@ -606,9 +635,10 @@ Write a fuller written explanation for the PDF version of this step: 2 to 4 sent
           {stage==="steps" && <Steps {...{steps,setSteps,busy,recUrl,dur,analyzeErr,onGen:genScripts,onBack:()=>setStage("setup")}}/>}
           {stage==="editing" && <Editing {...{steps,scripts,setScripts,details,setDetails,expandDetail,genErr,onNext:goGenerate,onBack:()=>setStage("steps")}}/>}
           {stage==="generating" && <Generating/>}
-          {stage==="preview" && <Published {...{proj,steps,scripts,details,voice,setVoice,recUrl,recBlob,dur,guides,showToast,onSave:saveToLibrary,onDone:()=>setStage("library")}}/>}
+          {stage==="preview" && <Published {...{proj,steps,scripts,details,voice,setVoice,recUrl,recBlob,dur,guides,showToast,onSave:saveToLibrary,onVideoReady:attachVideo,onDone:()=>setStage("library")}}/>}
         </main>
       )}
+      {watching && <Watch guide={watching} onClose={()=>setWatching(null)}/>}
       {toast && <Toast msg={toast}/>}
       <style>{`
         @media(max-width:860px){
@@ -737,7 +767,7 @@ function Cover({ title, status, mins, frame, size="card" }){
 }
 
 /* ================= Library ================= */
-function Library({ guides, loadingLib, onNew, onDelete, setStage, me }){
+function Library({ guides, loadingLib, onNew, onDelete, setStage, me, onWatch }){
   const [q,setQ] = useState("");
   const [cat,setCat] = useState("All");
   const [sort,setSort] = useState("Newest");
@@ -818,7 +848,7 @@ function Library({ guides, loadingLib, onNew, onDelete, setStage, me }){
                   <span className="num">{featured.steps} steps</span><span className="num">{featured.mins} min</span><span>{featured.author}</span>
                 </div>
                 <div style={{display:"flex",gap:10}}>
-                  <button className="u" style={{...btn.primary,padding:"10px 18px",fontSize:12}}><IcPlay size={14}/> Watch it</button>
+                  <button onClick={()=>onWatch&&onWatch(featured)} className="u" style={{...btn.primary,padding:"10px 18px",fontSize:12}}><IcPlay size={14}/> Watch it</button>
                   <button className="u" style={{...btn.ghost,padding:"10px 18px",fontSize:12}}><IcLink size={14}/> Share</button>
                 </div>
               </div>
@@ -838,7 +868,9 @@ function Library({ guides, loadingLib, onNew, onDelete, setStage, me }){
               <div key={g.id} style={{background:"#fff",border:"1px solid var(--sand-200)",borderRadius:16,overflow:"hidden",boxShadow:"var(--shadow-card)",transition:"transform .18s,box-shadow .18s",display:"flex",flexDirection:"column"}}
                 onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow="0 10px 26px rgba(36,31,29,.10)";}}
                 onMouseLeave={e=>{e.currentTarget.style.transform="none";e.currentTarget.style.boxShadow="var(--shadow-card)";}}>
-                <Cover title={g.name} status={g.status} mins={g.mins} frame={g.coverFrame}/>
+                <div onClick={()=>onWatch&&onWatch(g)} style={{cursor:"pointer"}}>
+                  <Cover title={g.name} status={g.status} mins={g.mins} frame={g.coverFrame}/>
+                </div>
                 <div style={{padding:"14px 16px 16px",flex:1,display:"flex",flexDirection:"column"}}>
                   <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:9}}>
                     <span className="u" style={{fontSize:9.5,fontWeight:700,letterSpacing:".08em",color:"var(--teal-500)",background:"var(--teal-wash)",padding:"3px 8px",borderRadius:100}}>{g.cat||"General"}</span>
@@ -859,7 +891,7 @@ function Library({ guides, loadingLib, onNew, onDelete, setStage, me }){
                       <span className="num" style={{display:"inline-flex",alignItems:"center",gap:5}}><IcEye size={13}/>{g.plays||0}</span>
                     </span>
                     <span style={{display:"flex",gap:4}}>
-                      <button title="Open" style={iconBtn()}><IcPlay size={14}/></button>
+                      <button title="Watch" onClick={()=>onWatch&&onWatch(g)} style={iconBtn()}><IcPlay size={14}/></button>
                       {me && me.admin && <button title="Delete" onClick={()=>onDelete(g.id)} style={iconBtn(false,true)}><IcTrash size={14}/></button>}
                     </span>
                   </div>
@@ -1181,7 +1213,7 @@ function Generating(){
 }
 
 /* ================= Published (reward) ================= */
-function Published({ proj,steps,scripts,details,voice,setVoice,recUrl,recBlob,dur,guides,showToast,onSave,onDone }){
+function Published({ proj,steps,scripts,details,voice,setVoice,recUrl,recBlob,dur,guides,showToast,onSave,onVideoReady,onDone }){
   const [saved,setSaved]=useState(false);
   const [copied,setCopied]=useState(false);
   const [vidState,setVidState]=useState("idle"); // idle | rendering | done | error
@@ -1347,6 +1379,7 @@ function Published({ proj,steps,scripts,details,voice,setVoice,recUrl,recBlob,du
         if(j.status === "done" && j.url){
           clearTimers(); setVidPct(100); setVidUrl(j.url);
           setVidState("done"); setVidPhase(""); setVidMsg("");
+          try{ onVideoReady && onVideoReady(j.url); }catch{}
           return;
         }
         if(j.status === "error"){
@@ -1563,6 +1596,83 @@ function Learn({ guides }){
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+
+/* ================= Watch a guide ================= */
+function Watch({ guide, onClose }){
+  const steps = Array.isArray(guide.guideSteps) ? guide.guideSteps : [];
+  const hasVideo = !!guide.videoUrl;
+  useEffect(()=>{
+    const h=(e)=>{ if(e.key==="Escape") onClose(); };
+    window.addEventListener("keydown",h);
+    document.body.style.overflow="hidden";
+    return ()=>{ window.removeEventListener("keydown",h); document.body.style.overflow=""; };
+  },[]);
+  return (
+    <div onClick={onClose} style={{position:"fixed",inset:0,zIndex:80,background:"rgba(6,47,52,.72)",
+      backdropFilter:"blur(3px)",display:"flex",alignItems:"flex-start",justifyContent:"center",
+      padding:"40px 20px",overflowY:"auto"}}>
+      <div onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:900,background:"#fff",
+        borderRadius:18,overflow:"hidden",boxShadow:"0 30px 80px rgba(6,47,52,.4)",animation:"fadeUp .28s ease"}}>
+
+        {/* header */}
+        <div style={{background:"var(--teal-900)",padding:"20px 24px",position:"relative"}}>
+          <div style={{position:"absolute",inset:0,backgroundImage:`url("data:image/svg+xml,${ROOF}")`,backgroundSize:"72px 72px",opacity:.4}}/>
+          <div style={{position:"relative",display:"flex",alignItems:"flex-start",gap:16}}>
+            <div style={{flex:1}}>
+              <div style={{width:32,height:4,borderRadius:4,background:"var(--amber-500)",marginBottom:10}}/>
+              <div className="u" style={{fontWeight:900,fontSize:22,letterSpacing:".01em",color:"#fff",lineHeight:1.15}}>{guide.name}</div>
+              {guide.desc && <p style={{fontSize:14,color:"var(--sand-300)",marginTop:8,maxWidth:560}}>{guide.desc}</p>}
+              <div style={{display:"flex",gap:16,marginTop:12,fontSize:12,color:"var(--sand-300)"}}>
+                <span className="num">{guide.steps||steps.length} steps</span>
+                {guide.mins!=null && <span className="num">{guide.mins} min</span>}
+                {guide.author && <span>{guide.author}</span>}
+              </div>
+            </div>
+            <button onClick={onClose} title="Close" style={{background:"rgba(255,255,255,.12)",border:"none",
+              color:"#fff",width:34,height:34,borderRadius:9,cursor:"pointer",display:"grid",placeItems:"center",flexShrink:0}}>
+              <IcX size={17}/>
+            </button>
+          </div>
+        </div>
+
+        {/* video */}
+        {hasVideo ? (
+          <video src={guide.videoUrl} controls autoPlay playsInline preload="metadata"
+            style={{width:"100%",display:"block",aspectRatio:"16/9",background:"var(--teal-900)"}}/>
+        ) : (
+          <div style={{padding:"26px 24px",background:"var(--amber-wash)",borderBottom:"1px solid var(--sand-200)",
+            display:"flex",gap:12,alignItems:"flex-start"}}>
+            <span style={{color:"var(--amber-600)",marginTop:1}}><IcVideo size={18}/></span>
+            <div>
+              <div className="u" style={{fontWeight:700,fontSize:12.5,letterSpacing:".04em",color:"#9a6b1e"}}>NO VIDEO YET</div>
+              <div style={{fontSize:13.5,color:"#9a6b1e",marginTop:4}}>
+                The written steps are below. A narrated video can be made from the publish screen when this guide is recorded again.
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* written steps */}
+        <div style={{padding:"18px 24px 26px"}}>
+          <div className="u" style={{fontSize:11,fontWeight:700,letterSpacing:".12em",color:"var(--sand-500)",marginBottom:14}}>THE WRITTEN GUIDE</div>
+          {steps.length===0 ? (
+            <div style={{fontSize:14,color:"var(--sand-500)"}}>No written steps were saved with this guide.</div>
+          ) : steps.map((st,i)=>(
+            <div key={i} style={{display:"flex",gap:13,padding:"12px 0",borderBottom:i<steps.length-1?"1px solid var(--sand-100)":"none"}}>
+              <div className="num" style={{width:24,height:24,borderRadius:7,flexShrink:0,background:"var(--teal-wash)",
+                color:"var(--teal-600)",fontWeight:700,fontSize:12,display:"grid",placeItems:"center"}}>{st.n||i+1}</div>
+              <div style={{minWidth:0}}>
+                <div className="u" style={{fontWeight:700,fontSize:13,letterSpacing:".02em",color:"var(--sand-900)",marginBottom:3}}>{st.title}</div>
+                <div style={{fontSize:14,color:"var(--sand-600)",lineHeight:1.55}}>{st.detail||st.narration}</div>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
