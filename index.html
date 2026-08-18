@@ -55,6 +55,11 @@
 window.WAYFINDER_CONFIG = {
   // Only email addresses at this domain may create an account.
   ALLOWED_DOMAIN: "partnersmortgage.com",
+  // Named outside guests who may sign in as viewers. Use full email
+  // addresses, never a whole domain, so access stays deliberate.
+  GUESTS: [
+    "shirleys@arborfg.com"
+  ],
   // Admins can record and publish guides. Everyone else is a viewer.
   ADMINS: [
     "lboyd@partnersmortgage.com",
@@ -62,7 +67,8 @@ window.WAYFINDER_CONFIG = {
     "jmorgan@partnersmortgage.com",
     "mmiles@partnersmortgage.com",
     "ktetz@partnersmortgage.com",
-    "jkarabinus@partnersmortgage.com"
+    "jkarabinus@partnersmortgage.com",
+    "shirleys@arborfg.com"
   ],
   firebase: { apiKey:"AIzaSyBA5MupoOC5_UjOPv5Umg4rn8Vzi6NLA8Y", authDomain:"wayfinder-1b0a4.firebaseapp.com", projectId:"wayfinder-1b0a4", storageBucket:"wayfinder-1b0a4.firebasestorage.app", messagingSenderId:"1017935566063", appId:"1:1017935566063:web:8f362b8f0818a06241771a" },
   R2_UPLOAD_URL: "https://wayfinder-r2.partnersmortgage88.workers.dev",
@@ -88,7 +94,12 @@ try{
 const DOMAIN = (CFG.ALLOWED_DOMAIN||"").toLowerCase();
 const ADMINS = (CFG.ADMINS||[]).map(e=>String(e).toLowerCase());
 const isAdminEmail = (email)=> ADMINS.includes(String(email||"").toLowerCase());
-const isAllowedEmail = (email)=> !DOMAIN || String(email||"").toLowerCase().endsWith("@"+DOMAIN);
+const GUESTS = (CFG.GUESTS||[]).map(e=>String(e).toLowerCase());
+const isAllowedEmail = (email)=>{
+  const e = String(email||"").toLowerCase();
+  if(GUESTS.includes(e)) return true;                 // named outside guest
+  return !DOMAIN || e.endsWith("@"+DOMAIN);
+};
 
 /* ---------- proxy helpers (send the signed-in user's token) ---------- */
 const PROXY = (CFG.PROXY_URL||"").replace(/\/+$/,"");
@@ -275,7 +286,7 @@ function AuthGate({ notice }){
     setMsg(""); setGood("");
     const e = email.trim().toLowerCase();
     if(!e || (mode!=="reset" && !pw)){ setMsg("Enter your email and password."); return; }
-    if(!isAllowedEmail(e)){ setMsg(`Use your @${DOMAIN} email address.`); return; }
+    if(!isAllowedEmail(e)){ setMsg(`Use your @${DOMAIN} email address, or an address that has been invited.`); return; }
     setBusy(true);
     try{
       if(mode==="up"){
@@ -333,7 +344,7 @@ function AuthGate({ notice }){
         </div>
       </div>
       <p style={{fontSize:11.5,color:"var(--sand-500)",marginTop:18,lineHeight:1.5}}>
-        Anyone with a Partners Mortgage email can create an account and watch guides. Recording is limited to training admins.
+        Anyone with a Partners Mortgage email can create an account and watch guides. Invited guests can too. Recording is limited to training admins.
       </p>
     </Shell>
   );
