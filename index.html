@@ -495,6 +495,27 @@ function Studio({ me }){
     v.currentTime=Math.max(0, Math.min(t, (v.duration||t)-0.05));
   });
 
+  /* When the author marked steps with M, those marks ARE the steps. We only
+     ask Claude to name each one. Nothing is merged, dropped, or re-cut. */
+  const titleMarkedSteps = async (frames, times)=>{
+    const content = frames.map(f=>({ type:"image", source:{ type:"base64", media_type:"image/jpeg", data:f.split(",")[1] } }));
+    content.push({ type:"text", text:
+`These ${frames.length} still frames are consecutive steps the author marked in a screen recording of a software workflow, in order.
+
+Write a short imperative title for EACH frame (max 6 words each). Do not merge, skip, reorder, or combine frames. Return exactly ${frames.length} titles.
+
+Return ONLY a JSON array of strings, one per frame, in the same order:
+["Open the loan application","Enter borrower information"]` });
+    const r = await callClaude({ model:MODEL, max_tokens:900, messages:[{ role:"user", content }] });
+    if(!r.ok){ const e=await r.json().catch(()=>({})); throw new Error(e?.error?.message || `Titling failed (${r.status})`); }
+    const data = await r.json();
+    const txt = data.content?.[0]?.text || "";
+    let arr; try{ arr=JSON.parse(txt); }catch{ const m=txt.match(/\[[\s\S]*\]/); if(!m) throw new Error("Model didn't return titles."); arr=JSON.parse(m[0]); }
+    if(!Array.isArray(arr)) throw new Error("Titles came back in an unexpected shape.");
+    // pad or trim so every marked step keeps its place no matter what
+    return times.map((t,i)=> String(arr[i] || `Step ${i+1}`).slice(0,60));
+  };
+
   const visionSteps = async (frames, times, D)=>{
     const content = frames.map(f=>({ type:"image", source:{ type:"base64", media_type:"image/jpeg", data:f.split(",")[1] } }));
     const markHint = marks.length ? `\n\nThe author marked likely step boundaries at these times (seconds): ${marks.map(m=>m.toFixed(1)).join(", ")}. Prefer these as boundaries.` : "";
@@ -503,7 +524,7 @@ function Studio({ me }){
 
 Identify the MACRO steps, one per distinct screen or task, NOT one per click. For each step give a "start" time in seconds (use the frame times) and a short imperative "title" (max 6 words).
 
-Return ONLY a JSON array, 3 to 8 items, sorted by start, like:
+Return ONLY a JSON array, 3 to 14 items, sorted by start, like:
 [{"start":0,"title":"Open the loan application"},{"start":12.5,"title":"Enter borrower information"}]` });
     const r = await callClaude({ model:MODEL, max_tokens:700, messages:[{ role:"user", content }] });
     if(!r.ok){ const e=await r.json().catch(()=>({})); throw new Error(e?.error?.message || `Vision request failed (${r.status})`); }
@@ -511,7 +532,8 @@ Return ONLY a JSON array, 3 to 8 items, sorted by start, like:
     const txt = data.content?.[0]?.text || "";
     let arr; try{ arr=JSON.parse(txt); }catch{ const m=txt.match(/\[[\s\S]*\]/); if(!m) throw new Error("Model didn't return step data."); arr=JSON.parse(m[0]); }
     arr = arr.filter(s=>typeof s.start==="number").map(s=>({ start:Math.max(0,Math.min(s.start,D)), title:(s.title||"Step").slice(0,60) })).sort((a,b)=>a.start-b.start);
-    const out=[]; for(const s of arr){ if(!out.length || s.start-out[out.length-1].start>1.2) out.push(s); }
+    const gap = marks.length ? 0.2 : 1.2;
+    const out=[]; for(const s of arr){ if(!out.length || s.start-out[out.length-1].start>gap) out.push(s); }
     if(!out.length) throw new Error("No steps detected.");
     return out;
   };
@@ -524,10 +546,26 @@ Return ONLY a JSON array, 3 to 8 items, sorted by start, like:
       const D = v.duration || 1; setDur(D);
       const N = Math.max(6, Math.min(12, Math.round(D/4)));
       const times = Array.from({length:N},(_,i)=> +(0.4 + i*(Math.max(D-0.8,0.4))/(N-1||1)).toFixed(2));
-      setAnalyzeMsg("Sampling frames from the recording…"); setAnalyzePct(35);
-      const small=[]; for(const t of times){ small.push(await captureAt(v,t,480,0.5)); }
-      setAnalyzeMsg("Asking Claude to find the steps…"); setAnalyzePct(60);
-      const proposed = await visionSteps(small, times, D);
+      /* If the author marked steps, use those exact boundaries. The first
+         step starts at the beginning; each M press starts the next one. */
+      const marked = Array.from(new Set(marks.map(m=>+Number(m).toFixed(2))))
+        .filter(m=>m>0.3 && m<D-0.2).sort((a,b)=>a-b);
+      let proposed;
+      if(marked.length){
+        const stepTimes = [0, ...marked];
+        setAnalyzeMsg(`Using the ${stepTimes.length} steps you marked…`); setAnalyzePct(35);
+        const shots=[]; for(const t of stepTimes){ shots.push(await captureAt(v, Math.min(t+0.15, D-0.1), 480, 0.5)); }
+        setAnalyzeMsg("Naming each step…"); setAnalyzePct(60);
+        let titles;
+        try{ titles = await titleMarkedSteps(shots, stepTimes); }
+        catch{ titles = stepTimes.map((_,i)=>`Step ${i+1}`); }
+        proposed = stepTimes.map((t,i)=>({ start:t, title:titles[i] }));
+      } else {
+        setAnalyzeMsg("Sampling frames from the recording…"); setAnalyzePct(35);
+        const small=[]; for(const t of times){ small.push(await captureAt(v,t,480,0.5)); }
+        setAnalyzeMsg("Asking Claude to find the steps…"); setAnalyzePct(60);
+        proposed = await visionSteps(small, times, D);
+      }
       setAnalyzeMsg("Grabbing a screenshot for each step…"); setAnalyzePct(85);
       const withThumbs=[];
       for(let i=0;i<proposed.length;i++){
@@ -659,8 +697,8 @@ Write a fuller written explanation for the PDF version of this step: 2 to 4 sent
           {stage==="setup" && <Setup {...{proj,setProj,onNext:startRec}}/>}
           {stage==="recording" && <RecordStudio {...{onStop:stopRec,marks,setMarks}}/>}
           {stage==="analyzing" && <Analyzing msg={analyzeMsg} pct={analyzePct}/>}
-          {stage==="steps" && <Steps {...{steps,setSteps,busy,recUrl,dur,analyzeErr,onGen:genScripts,onBack:()=>setStage("setup")}}/>}
-          {stage==="editing" && <Editing {...{steps,scripts,setScripts,details,setDetails,expandDetail,genErr,onNext:goGenerate,onBack:()=>setStage("steps")}}/>}
+          {stage==="steps" && <Steps {...{steps,setSteps,busy,recUrl,dur,analyzeErr,marked:marks.length,onGen:genScripts,onBack:()=>setStage("setup")}}/>}
+          {stage==="editing" && <Editing {...{steps,setSteps,scripts,setScripts,details,setDetails,expandDetail,genErr,onNext:goGenerate,onBack:()=>setStage("steps")}}/>}
           {stage==="generating" && <Generating/>}
           {stage==="preview" && <Published {...{proj,steps,scripts,details,voice,setVoice,recUrl,recBlob,dur,guides,showToast,onSave:saveToLibrary,onVideoReady:attachVideo,guideId,onDone:()=>setStage("library")}}/>}
         </main>
@@ -1034,7 +1072,7 @@ function RecordStudio({ onStop, marks, setMarks }){
           )}
         </div>
       </div>
-      <p style={{fontSize:13.5,color:"var(--sand-600)",marginTop:16}}>Tap <b>M</b> each time you start a new step. Those marks help Claude cut the steps more accurately, and you can still fix everything on the next screen.</p>
+      <p style={{fontSize:13.5,color:"var(--sand-600)",marginTop:16}}>Tap <b>M</b> each time you start a new step. Every mark becomes its own step, nothing gets combined. If you do not mark anything, Claude will find the steps for you.</p>
     </div>
   );
 }
@@ -1058,10 +1096,9 @@ function Analyzing({ msg, pct }){
 }
 
 /* ================= Steps (filmstrip) ================= */
-function Steps({ steps,setSteps,busy,recUrl,dur,analyzeErr,onGen,onBack }){
-  const [editId,setEditId]=useState(null);
-  const [draft,setDraft]=useState("");
+function Steps({ steps,setSteps,busy,recUrl,dur,analyzeErr,marked,onGen,onBack }){
   const [dragId,setDragId]=useState(null);
+  const dragOK=useRef(false);
   const [overId,setOverId]=useState(null);
   const [splitId,setSplitId]=useState(null);
   const [splitT,setSplitT]=useState(0);
@@ -1074,8 +1111,6 @@ function Steps({ steps,setSteps,busy,recUrl,dur,analyzeErr,onGen,onBack }){
       const c=document.createElement("canvas"); c.width=w; c.height=h||360; try{ c.getContext("2d").drawImage(v,0,0,c.width,c.height); res(c.toDataURL("image/jpeg",q)); }catch{ res(""); } };
     v.addEventListener("seeked",on); v.currentTime=Math.max(0,Math.min(t,(v.duration||t)-0.05)); });
 
-  const beginEdit=(s)=>{ setEditId(s.id); setDraft(s.title); };
-  const commit=()=>{ setSteps(prev=>prev.map(s=>s.id===editId?{...s,title:draft.trim()||s.title}:s)); setEditId(null); };
   const remove=(id)=> setSteps(steps.filter(s=>s.id!==id));
   const onDrop=(targetId)=>{ if(dragId==null||dragId===targetId){ setDragId(null); setOverId(null); return; }
     const arr=[...steps]; const from=arr.findIndex(s=>s.id===dragId), to=arr.findIndex(s=>s.id===targetId);
@@ -1084,40 +1119,43 @@ function Steps({ steps,setSteps,busy,recUrl,dur,analyzeErr,onGen,onBack }){
   const previewSplit=async(val)=>{ setSplitT(val); setSplitThumb(await capture(val)); };
   const confirmSplit=async()=>{ const i=steps.findIndex(s=>s.id===splitId); const thumb=splitThumb||await capture(splitT);
     const ns={ id:Math.max(0,...steps.map(s=>s.id))+1, title:"New step", t:splitT, thumb, conf:1 };
-    const arr=[...steps]; arr.splice(i+1,0,ns); setSteps(arr); setSplitId(null); setSplitThumb(""); setEditId(ns.id); setDraft("New step"); };
+    const arr=[...steps]; arr.splice(i+1,0,ns); setSteps(arr); setSplitId(null); setSplitThumb(""); };
 
   return (
     <div style={{animation:"fadeUp .35s ease"}}>
       <Eyebrow>STEP 3 OF 5</Eyebrow>
       <H2>CONFIRM YOUR STEPS</H2>
-      <p style={{fontSize:15,color:"var(--sand-600)",marginTop:8,marginBottom:analyzeErr?14:22,maxWidth:600}}>Claude proposed {steps.length} steps from your recording. Rename, reorder, split, or delete until it reads right.</p>
+      <p style={{fontSize:15,color:"var(--sand-600)",marginTop:8,marginBottom:analyzeErr?14:22,maxWidth:620}}>
+        {marked
+          ? `These are the ${steps.length} steps you marked while recording, kept exactly as you set them. Rename, reorder, split, or delete any of them.`
+          : `Claude found ${steps.length} steps in your recording. Rename, reorder, split, or delete until it reads right. Tip: press M while recording to set the steps yourself.`}
+      </p>
       {analyzeErr && <div style={{display:"flex",gap:10,padding:"12px 14px",borderRadius:11,marginBottom:20,background:"var(--amber-wash)",color:"#9a6b1e",fontSize:13.5,alignItems:"flex-start"}}><span style={{marginTop:1}}><IcFlag size={16}/></span><span>{analyzeErr}</span></div>}
 
       <div style={{display:"flex",gap:14,overflowX:"auto",paddingBottom:14}}>
         {steps.map((s,i)=>{
           const over=overId===s.id&&dragId!==s.id, dragging=dragId===s.id;
           return (
-            <div key={s.id} draggable={editId!==s.id}
-              onDragStart={()=>setDragId(s.id)} onDragEnd={()=>{setDragId(null);setOverId(null);}}
+            <div key={s.id} draggable
+              onDragStart={e=>{ if(!dragOK.current){ e.preventDefault(); return; } setDragId(s.id); }}
+              onDragEnd={()=>{ dragOK.current=false; setDragId(null); setOverId(null); }}
               onDragOver={e=>{e.preventDefault();setOverId(s.id);}} onDrop={()=>onDrop(s.id)}
               style={{width:232,flexShrink:0,background:"#fff",border:`1px solid ${over?"var(--teal-500)":"var(--sand-200)"}`,borderRadius:14,overflow:"hidden",boxShadow:over?"0 0 0 3px var(--teal-wash)":"var(--shadow-card)",opacity:dragging?.4:1,transition:"all .15s"}}>
               <div style={{position:"relative",aspectRatio:"16/10",background:"var(--teal-900)"}}>
                 {s.thumb && <img src={s.thumb} alt={`Step ${i+1}: ${s.title}`} style={{width:"100%",height:"100%",objectFit:"cover"}}/>}
                 <span className="num" style={{position:"absolute",top:8,left:8,fontSize:22,fontWeight:900,color:"rgba(255,255,255,.85)",textShadow:"0 1px 6px rgba(0,0,0,.4)"}}>{String(i+1).padStart(2,"0")}</span>
                 <span className="num" style={{position:"absolute",bottom:8,right:8,fontSize:11,color:"#fff",background:"rgba(6,47,52,.72)",borderRadius:100,padding:"2px 7px"}}>{fmt(s.t)}</span>
-                <span style={{position:"absolute",top:8,right:8,color:"rgba(255,255,255,.7)",cursor:"grab"}}><IcGrip size={16}/></span>
+                <span title="Drag to reorder" onMouseDown={()=>{dragOK.current=true;}}
+                  style={{position:"absolute",top:8,right:8,color:"rgba(255,255,255,.7)",cursor:"grab",padding:2}}><IcGrip size={16}/></span>
               </div>
               <div style={{padding:"10px 11px 11px"}}>
-                {editId===s.id ? (
-                  <input autoFocus value={draft} onChange={e=>setDraft(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")commit();if(e.key==="Escape")setEditId(null);}} onBlur={commit}
-                    className="u" style={{...inp,padding:"6px 8px",fontSize:12,fontWeight:700,letterSpacing:".03em"}}/>
-                ) : (
-                  <div className="u" onClick={()=>beginEdit(s)} title="Click to rename" style={{fontWeight:700,fontSize:12,letterSpacing:".03em",color:"var(--sand-900)",lineHeight:1.3,minHeight:31,cursor:"text"}}>{s.title}</div>
-                )}
+                <label className="u" style={{display:"block",fontSize:9,fontWeight:700,letterSpacing:".08em",color:"var(--sand-500)",marginBottom:4}}>Step name</label>
+                <input value={s.title||""} placeholder={`Step ${i+1}`}
+                  onChange={e=>setSteps(prev=>prev.map(x=>x.id===s.id?{...x,title:e.target.value}:x))}
+                  className="u" style={{...inp,padding:"6px 8px",fontSize:12,fontWeight:700,letterSpacing:".03em"}}/>
                 <div style={{display:"flex",gap:5,marginTop:9}}>
-                  <button onClick={()=>beginEdit(s)} style={iconBtnSm()} title="Rename"><IcEdit size={14}/></button>
-                  {recUrl && <button onClick={()=>openSplit(s,i)} style={iconBtnSm()} title="Split"><IcScissors size={14}/></button>}
-                  <button onClick={()=>remove(s.id)} style={iconBtnSm(true)} title="Delete"><IcTrash size={14}/></button>
+                  {recUrl && <button onClick={()=>openSplit(s,i)} style={iconBtnSm()} title="Split this step"><IcScissors size={14}/></button>}
+                  <button onClick={()=>remove(s.id)} style={iconBtnSm(true)} title="Delete this step"><IcTrash size={14}/></button>
                 </div>
               </div>
             </div>
@@ -1165,7 +1203,7 @@ function Steps({ steps,setSteps,busy,recUrl,dur,analyzeErr,onGen,onBack }){
 }
 
 /* ================= Editing (script) ================= */
-function Editing({ steps,scripts,setScripts,details,setDetails,expandDetail,genErr,onNext,onBack }){
+function Editing({ steps,setSteps,scripts,setScripts,details,setDetails,expandDetail,genErr,onNext,onBack }){
   const set=(id,v)=> setScripts({...scripts,[id]:v});
   const setD=(id,v)=> setDetails({...details,[id]:v});
   const [busyId,setBusyId]=useState(null);
@@ -1194,7 +1232,11 @@ function Editing({ steps,scripts,setScripts,details,setDetails,expandDetail,genE
                 {s.thumb && <div style={{width:76,height:46,borderRadius:8,overflow:"hidden",flexShrink:0,border:"1px solid var(--sand-200)"}}><img src={s.thumb} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/></div>}
                 <div>
                   <span className="num" style={{fontSize:11,color:"var(--sand-500)"}}>{fmt(s.t)}</span>
-                  <div className="u" style={{fontWeight:700,fontSize:13,letterSpacing:".03em",color:"var(--sand-900)"}}>{s.title}</div>
+                  <input value={s.title||""} placeholder={`Step ${s.id}`}
+                    onChange={e=>setSteps&&setSteps(prev=>prev.map(x=>x.id===s.id?{...x,title:e.target.value}:x))}
+                    className="u" style={{...inp,padding:"4px 7px",fontSize:13,fontWeight:700,letterSpacing:".03em",background:"transparent",border:"1px solid transparent"}}
+                    onFocus={e=>{e.target.style.background="#fff";e.target.style.borderColor="var(--sand-200)";}}
+                    onBlur={e=>{e.target.style.background="transparent";e.target.style.borderColor="transparent";}}/>
                 </div>
               </div>
               <label className="u" style={{fontSize:10,fontWeight:700,letterSpacing:".08em",color:"var(--sand-500)",display:"block",marginBottom:5}}>Narration · spoken in the video</label>
