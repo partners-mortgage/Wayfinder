@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Migration Console &middot; Partners Academy</title>
+<link rel="icon" type="image/jpeg" href="data:image/jpeg;base64,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">
+<link rel="apple-touch-icon" href="data:image/jpeg;base64,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">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800;900&family=Lora:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<style>
+  :root{
+    --teal-500:#00818d; --teal-600:#006e78; --teal-800:#044248; --teal-900:#062f34; --teal-wash:#e6f2f3;
+    --amber-500:#ffac27; --amber-wash:#fff3de;
+    --sand-50:#faf9f8; --sand-100:#f3f1ef; --sand-200:#e7e3df; --sand-300:#d8d2cc;
+    --sand-500:#8a7e78; --sand-600:#6f645f; --sand-800:#3a332f; --sand-900:#241f1d;
+    --pm-coral:#fb5058; --pm-green:#96c121; --pm-green-wash:#eef6d8;
+    --font-display:'Montserrat',system-ui,sans-serif;
+    --font-body:'Lora',Georgia,serif;
+    --shadow-card:0 1px 2px rgba(36,31,29,.04),0 8px 22px rgba(36,31,29,.05);
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:var(--font-body);background:var(--sand-50);color:var(--sand-800);line-height:1.6;-webkit-font-smoothing:antialiased}
+  .u{font-family:var(--font-display);text-transform:uppercase}
+  .num{font-family:var(--font-display);font-variant-numeric:tabular-nums}
+  .wrap{max-width:1000px;margin:0 auto;padding:38px 24px 100px}
+  .hd{display:flex;align-items:center;gap:14px;margin-bottom:4px}
+  .hd img{width:44px;height:44px;border-radius:11px}
+  h1{font-family:var(--font-display);font-weight:900;font-size:27px;letter-spacing:.02em;color:var(--sand-900);text-transform:uppercase;line-height:1.1}
+  .eyebrow{font-family:var(--font-display);text-transform:uppercase;font-size:11px;font-weight:700;letter-spacing:.14em;color:var(--teal-500)}
+  .lede{font-size:15px;color:var(--sand-600);margin:12px 0 26px;max-width:760px}
+  .card{background:#fff;border:1px solid var(--sand-200);border-radius:16px;padding:20px 22px;margin-bottom:16px;box-shadow:var(--shadow-card)}
+  .card h2{font-family:var(--font-display);text-transform:uppercase;font-size:12.5px;font-weight:800;letter-spacing:.11em;color:var(--sand-900);margin-bottom:4px}
+  .card .sub{font-size:13.5px;color:var(--sand-600);margin-bottom:15px}
+  .step{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--teal-800);color:#fff;font-family:var(--font-display);font-size:11px;font-weight:800;margin-right:9px;vertical-align:2px}
+  label{display:block;font-family:var(--font-display);text-transform:uppercase;font-size:10.5px;font-weight:700;letter-spacing:.1em;color:var(--sand-500);margin-bottom:5px}
+  input{width:100%;padding:10px 12px;font-size:14.5px;font-family:var(--font-body);color:var(--sand-900);background:#fff;border:1px solid var(--sand-200);border-radius:11px;outline:none}
+  input:focus{border-color:var(--teal-500);box-shadow:0 0 0 3px rgba(0,129,141,.15)}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:13px}
+  button{font-family:var(--font-display);text-transform:uppercase;font-weight:800;font-size:11.5px;letter-spacing:.09em;border:none;border-radius:11px;padding:11px 19px;cursor:pointer;transition:opacity .15s}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  .primary{background:var(--teal-800);color:#fff}
+  .ghost{background:#fff;color:var(--sand-800);border:1px solid var(--sand-200)}
+  .danger{background:var(--pm-coral);color:#fff}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:15px}
+  .tag{font-family:var(--font-display);text-transform:uppercase;font-size:9.5px;font-weight:800;letter-spacing:.07em;padding:3px 8px;border-radius:100px;white-space:nowrap}
+  .t-ok{background:var(--pm-green-wash);color:#5a7d0f}
+  .t-warn{background:var(--amber-wash);color:#8a5c00}
+  .t-bad{background:#ffe9ea;color:#a8262c}
+  .t-mute{background:var(--sand-100);color:var(--sand-600)}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th{font-family:var(--font-display);text-transform:uppercase;font-size:10px;font-weight:800;letter-spacing:.1em;color:var(--sand-500);text-align:left;padding:8px 9px;border-bottom:1px solid var(--sand-200)}
+  td{padding:10px 9px;border-bottom:1px solid var(--sand-100);vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(115px,1fr));gap:12px;margin-bottom:16px}
+  .stat{background:var(--teal-900);color:#fff;border-radius:14px;padding:14px 16px}
+  .stat b{font-family:var(--font-display);font-variant-numeric:tabular-nums;font-size:25px;font-weight:900;display:block;line-height:1.1}
+  .stat span{font-family:var(--font-display);text-transform:uppercase;font-size:9.5px;font-weight:700;letter-spacing:.11em;color:#9fc0c4}
+  .log{background:var(--sand-900);color:#e8e3df;border-radius:12px;padding:14px 16px;font-family:ui-monospace,Menlo,monospace;font-size:12px;line-height:1.7;max-height:300px;overflow:auto;white-space:pre-wrap}
+  .note{border-left:3px solid var(--amber-500);background:var(--amber-wash);border-radius:0 11px 11px 0;padding:12px 15px;font-size:13.5px;color:#6b4a08;margin-top:14px}
+  .note.bad{border-left-color:var(--pm-coral);background:#ffe9ea;color:#8f2126}
+  .hide{display:none}
+  .lesson{font-size:12.5px;color:var(--sand-600);margin-top:3px}
+  footer{margin-top:30px;padding-top:18px;border-top:1px solid var(--sand-200);font-size:12.5px;color:var(--sand-500)}
+  footer .tag2{font-family:var(--font-body);font-style:italic;color:var(--teal-500)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="hd">
+    <img src="data:image/jpeg;base64,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" alt="Partners Mortgage">
+    <div>
+      <div class="eyebrow">PARTNERS ACADEMY &middot; PHASE 1</div>
+      <h1>Migration console</h1>
+    </div>
+  </div>
+
+  <p class="lede">Moves published courses from the old Academy project into the Academy database, applying the
+  locked decisions: published only, chapters flattened, guide lessons dropped, progress abandoned. Nothing is
+  written until you read the inventory and press the write button. Read the inventory carefully, because the
+  dropped lessons are content your team will have to re-author.</p>
+
+  <div class="card">
+    <h2><span class="step">1</span>Connect both projects</h2>
+    <div class="sub">Two separate Firebase projects means two separate sign-ins, even with the same email. Source is
+    <b>partners-playbook</b>, target is <b>wayfinder-1b0a4</b>. You need admin on both.</div>
+    <div class="grid2">
+      <div>
+        <label>Email</label>
+        <input id="em" type="email" autocomplete="username" placeholder="lboyd@partnersmortgage.com">
+      </div>
+      <div>
+        <label>Password</label>
+        <input id="pw" type="password" autocomplete="current-password" placeholder="Your password">
+      </div>
+    </div>
+    <div class="row">
+      <button class="primary" id="btnConnect">Connect and read source</button>
+      <span id="connState" class="tag t-mute">not connected</span>
+    </div>
+    <div class="note">Nothing is stored. The password is used for two sign-in calls and never written anywhere.
+    If the two projects use different passwords, connect the source first, then use the target field that appears.</div>
+  </div>
+
+  <div id="invCard" class="card hide">
+    <h2><span class="step">2</span>Inventory, before anything is written</h2>
+    <div class="sub">Every published course, and exactly what it loses. A course marked <b>lesson loss</b> will arrive
+    in the new Academy with fewer lessons than it has today.</div>
+    <div class="stats" id="stats"></div>
+    <div style="overflow:auto"><table id="invTable"></table></div>
+    <div id="lossNote"></div>
+    <div class="row">
+      <button class="ghost" id="btnJson">Download inventory as JSON</button>
+      <button class="ghost" id="btnCsv">Download loss list as CSV</button>
+    </div>
+  </div>
+
+  <div id="writeCard" class="card hide">
+    <h2><span class="step">3</span>Write into the Academy</h2>
+    <div class="sub">Dry run first. It performs every read and builds every document, then reports what it would
+    write without writing it. Only press the real write once the dry run looks right.</div>
+    <div class="row">
+      <button class="ghost" id="btnDry">Dry run</button>
+      <button class="danger" id="btnWrite" disabled>Write for real</button>
+      <span id="writeState" class="tag t-mute">not run</span>
+    </div>
+    <div class="note">Writes use the source course id as the target document id, so running this twice overwrites
+    rather than duplicating. That is deliberate: a rerun after a fix is safe.</div>
+  </div>
+
+  <div class="card">
+    <h2>Log</h2>
+    <div class="sub">Everything this tool did, in order. Copy it out if something needs explaining later.</div>
+    <div class="log" id="log">waiting</div>
+  </div>
+
+  <footer>
+    The Turnkey Foundation Inc. DBA Partners Mortgage. NMLS #236669. Internal tool.<br>
+    Build <span class="num" id="build"></span><br>
+    <span class="tag2">You matter.</span>
+  </footer>
+</div>
+
+<script>
+var BUILD = "migrate-2026.09.02-p1";
+document.getElementById("build").textContent = BUILD;
+
+/* Source: the old Academy. Target: the Academy database everything is
+   consolidating onto. Both configs are already public in their apps. */
+var SRC_CFG = {
+  apiKey:"AIzaSyB_xhcfihjyAJiKsQBHOgIJc9GdX-FgNXc",
+  authDomain:"partners-playbook.firebaseapp.com",
+  databaseURL:"https://partners-playbook-default-rtdb.firebaseio.com",
+  projectId:"partners-playbook",
+  storageBucket:"partners-playbook.firebasestorage.app",
+  messagingSenderId:"762913131379",
+  appId:"1:762913131379:web:b611e7ab2e93de816c1306"
+};
+var DST_CFG = {
+  apiKey:"AIzaSyBA5MupoOC5_UjOPv5Umg4rn8Vzi6NLA8Y",
+  authDomain:"wayfinder-1b0a4.firebaseapp.com",
+  projectId:"wayfinder-1b0a4",
+  storageBucket:"wayfinder-1b0a4.firebasestorage.app",
+  messagingSenderId:"1017935566063",
+  appId:"1:1017935566063:web:8f362b8f0818a06241771a"
+};
+
+var srcApp = null, dstApp = null, srcFs = null, srcAuth = null, dstFs = null, dstAuth = null;
+var FB_READY = false, FB_ERROR = "";
+try{
+  if(typeof firebase === "undefined") throw new Error("The Firebase library did not load. Check the network, then reload.");
+  srcApp = firebase.initializeApp(SRC_CFG, "source");
+  dstApp = firebase.initializeApp(DST_CFG, "target");
+  srcFs = srcApp.firestore(); srcAuth = srcApp.auth();
+  dstFs = dstApp.firestore(); dstAuth = dstApp.auth();
+  FB_READY = true;
+}catch(e){
+  FB_ERROR = e.message || String(e);
+}
+
+var STATE = { courses:[], users:[], inventory:[], built:[] };
+
+/* Who is signed in to the target. Guarded, because if the Firebase library
+   failed to load these objects are null and a crash here would be a crash
+   in the middle of a migration. */
+function meUid(){ return (dstAuth && dstAuth.currentUser && dstAuth.currentUser.uid) || ""; }
+function meEmail(){ return (dstAuth && dstAuth.currentUser && dstAuth.currentUser.email) || ""; }
+
+function $(id){ return document.getElementById(id); }
+function log(msg, kind){
+  var el = $("log");
+  if(el.textContent === "waiting") el.textContent = "";
+  var stamp = new Date().toLocaleTimeString("en-US",{hour12:false});
+  var mark = kind === "bad" ? "  [!] " : kind === "ok" ? "  [ok] " : "  ";
+  el.textContent += stamp + mark + msg + "\n";
+  el.scrollTop = el.scrollHeight;
+}
+function setTag(id, text, cls){
+  var el = $(id); el.textContent = text; el.className = "tag " + cls;
+}
+function esc(s){
+  return String(s == null ? "" : s).replace(/[&<>"]/g, function(c){
+    return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c];
+  });
+}
+function download(name, text, mime){
+  var b = new Blob([text], { type: mime || "text/plain" });
+  var a = document.createElement("a");
+  a.href = URL.createObjectURL(b); a.download = name; a.click();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); }, 2000);
+}
+
+/* ---------- read the source ---------- */
+
+function courseLessons(c){
+  /* The Academy nests lessons inside chapters. Flattening keeps document
+     order, which is the order a learner saw them in. */
+  var out = [];
+  (c.chapters || []).forEach(function(ch){
+    (ch.lessons || []).forEach(function(l){
+      out.push({ lesson: l, chapter: ch.title || "" });
+    });
+  });
+  return out;
+}
+
+/* The locked transform.
+   guide  -> dropped. Its content lives in Realtime Database with a
+             different shape and a different renderer, so it does not port.
+   both   -> degraded to video. The video half survives, the guide half
+             goes the same way as a guide lesson. Flagged for re-authoring
+             as a proper Wayfinder guide lesson.
+   video  -> kept.
+   anything else -> kept as text if it has a body, otherwise dropped. */
+function classify(l){
+  var t = l.type || "video";
+  if(t === "guide") return { action:"drop",   reason:"Guide lesson. Content is in Realtime Database and does not port." };
+  if(t === "both")  return { action:"degrade",reason:"Guide plus video. Video kept, written guide lost. Re-author in Wayfinder." };
+  if(t === "video") return { action:"keep",   reason:"" };
+  if(l.body)        return { action:"keep",   reason:"" };
+  return { action:"drop", reason:"Unrecognised lesson type with no content: " + t };
+}
+
+function buildInventory(){
+  STATE.inventory = STATE.courses.map(function(c){
+    var flat = courseLessons(c);
+    var kept = 0, dropped = [], degraded = [];
+    flat.forEach(function(f){
+      var v = classify(f.lesson);
+      if(v.action === "drop") dropped.push({ title: f.lesson.title || "Untitled lesson", type: f.lesson.type || "?", reason: v.reason });
+      else { kept++; if(v.action === "degrade") degraded.push({ title: f.lesson.title || "Untitled lesson", reason: v.reason }); }
+    });
+    return {
+      id: c.id,
+      title: c.title || "Untitled course",
+      published: !!c.published,
+      chapters: (c.chapters || []).length,
+      lessonsBefore: flat.length,
+      lessonsAfter: kept,
+      dropped: dropped,
+      degraded: degraded,
+      audience: c.audience || "all",
+      assignedTo: (c.assignedTo || []).map(function(e){ return String(e).toLowerCase(); })
+    };
+  });
+}
+
+/* ---------- the transform ---------- */
+
+function transform(c, byEmail){
+  var flat = courseLessons(c);
+  var lessons = [], dropped = [], degraded = [], n = 0;
+
+  flat.forEach(function(f){
+    var l = f.lesson, v = classify(l);
+    if(v.action === "drop"){
+      dropped.push({ title: l.title || "Untitled lesson", type: l.type || "?", reason: v.reason });
+      return;
+    }
+    n++;
+    var out = {
+      id: "l" + n,
+      type: (l.type === "both" || l.type === "video") ? "video" : "text",
+      title: l.title || "Untitled lesson",
+      required: true,
+      fromChapter: f.chapter,
+      migratedFrom: l.id || ""
+    };
+    if(l.videoUrl) out.videoUrl = l.videoUrl;
+    if(l.videoPoster) out.videoPoster = l.videoPoster;
+    if(l.videoSource) out.videoSource = l.videoSource;
+    if(l.durationLabel) out.durationLabel = l.durationLabel;
+    if(l.body) out.body = l.body;
+
+    if(v.action === "degrade"){
+      out.needsReauthor = true;
+      out.lostGuideId = l.guideId || "";
+      degraded.push({ title: out.title, reason: v.reason });
+    }
+    lessons.push(out);
+  });
+
+  return {
+    doc: {
+      title: c.title || "Untitled course",
+      desc: c.description || "",
+      cat: c.category || "Onboarding",
+      coverFrame: "",
+      coverColor: c.coverColor || "",
+      status: "published",
+      createdBy: meUid(),
+      createdAt: c.createdAt || Date.now(),
+      updatedAt: Date.now(),
+      branchId: null,
+      order: c.order || 0,
+
+      lessons: lessons,
+
+      prereqCourseIds: [],
+      levelRequired: 1,
+
+      /* Assignment keys on lowercased email, adopted from the Academy,
+         so a course can be assigned to someone who has not signed in yet. */
+      audience: c.audience || "all",
+      assignedTo: (c.assignedTo || []).map(function(e){ return String(e).toLowerCase(); }),
+      assignedRoles: ["learner"],
+
+      completionRule: "all-required",
+      completionPct: 100,
+      certificateOn: true,
+
+      migration: {
+        source: "partners-playbook",
+        sourceCourseId: c.id,
+        migratedAt: Date.now(),
+        migratedBy: meEmail(),
+        tool: BUILD,
+        chaptersFlattened: (c.chapters || []).length,
+        droppedLessons: dropped,
+        degradedLessons: degraded
+      }
+    },
+    dropped: dropped,
+    degraded: degraded
+  };
+}
+
+/* ---------- render ---------- */
+
+function renderInventory(){
+  var inv = STATE.inventory;
+  var pub = inv.filter(function(i){ return i.published; });
+  var before = pub.reduce(function(a,i){ return a + i.lessonsBefore; }, 0);
+  var after  = pub.reduce(function(a,i){ return a + i.lessonsAfter; }, 0);
+  var lossy  = pub.filter(function(i){ return i.dropped.length; }).length;
+  var degr   = pub.reduce(function(a,i){ return a + i.degraded.length; }, 0);
+
+  $("stats").innerHTML =
+    stat(pub.length, "published courses") +
+    stat(inv.length - pub.length, "drafts skipped") +
+    stat(before, "lessons today") +
+    stat(after, "lessons after") +
+    stat(before - after, "lessons lost") +
+    stat(degr, "need re-author");
+
+  var rows = "<tr><th>Course</th><th>Chapters</th><th>Lessons</th><th>Status</th><th>What it loses</th></tr>";
+  inv.forEach(function(i){
+    if(!i.published){
+      rows += "<tr><td><b>" + esc(i.title) + "</b><div class='lesson'>draft, not migrated</div></td>" +
+              "<td class='num'>" + i.chapters + "</td><td class='num'>" + i.lessonsBefore + "</td>" +
+              "<td><span class='tag t-mute'>skipped</span></td><td class='lesson'>Not published, so out of scope.</td></tr>";
+      return;
+    }
+    var tag = i.dropped.length ? "<span class='tag t-bad'>lesson loss</span>"
+            : i.degraded.length ? "<span class='tag t-warn'>degraded</span>"
+            : "<span class='tag t-ok'>clean</span>";
+    var detail = "";
+    i.dropped.forEach(function(d){
+      detail += "<div class='lesson'><b>Dropped:</b> " + esc(d.title) + " (" + esc(d.type) + ")</div>";
+    });
+    i.degraded.forEach(function(d){
+      detail += "<div class='lesson'><b>Video kept, guide lost:</b> " + esc(d.title) + "</div>";
+    });
+    if(i.chapters > 1) detail += "<div class='lesson'>" + i.chapters + " chapters flattened into one list.</div>";
+    if(!detail) detail = "<div class='lesson'>Nothing. Ports as is.</div>";
+
+    rows += "<tr><td><b>" + esc(i.title) + "</b><div class='lesson'>" + esc(i.audience === "assigned" ? i.assignedTo.length + (i.assignedTo.length === 1 ? " person assigned" : " people assigned") : "open to everyone") + "</div></td>" +
+            "<td class='num'>" + i.chapters + "</td>" +
+            "<td class='num'>" + i.lessonsBefore + " &rarr; " + i.lessonsAfter + "</td>" +
+            "<td>" + tag + "</td><td>" + detail + "</td></tr>";
+  });
+  $("invTable").innerHTML = rows;
+
+  var note = "";
+  if(before - after > 0){
+    var lost = before - after;
+    note = "<div class='note bad'><b>" + lost + " lesson" + (lost === 1 ? "" : "s") +
+           " will not survive this migration, across " + lossy +
+           " course" + (lossy === 1 ? "" : "s") + ".</b> " +
+           (lost === 1
+             ? "That is a guide lesson whose content lives in the old Realtime Database with a different shape. It does not port and is not worth porting. "
+             : "Those are guide lessons whose content lives in the old Realtime Database with a different shape. They do not port and are not worth porting. ") +
+           "Decide course by course whether the content matters enough to re-author in Wayfinder, and download the CSV to work from.</div>";
+  } else {
+    note = "<div class='note'>No lessons are lost. Every published course ports intact.</div>";
+  }
+  if(degr > 0){
+    note += "<div class='note'>" + degr + " lesson" + (degr === 1 ? " had" : "s had") +
+            " a video and a written guide together. The video comes across and the written half does not. " +
+            "Each is flagged <b>needsReauthor</b> in the new course document, so " +
+            (degr === 1 ? "it is easy to find and rebuild as a proper Wayfinder guide lesson later."
+                        : "they are easy to find and rebuild as proper Wayfinder guide lessons later.") + "</div>";
+  }
+  $("lossNote").innerHTML = note;
+  $("invCard").classList.remove("hide");
+  $("writeCard").classList.remove("hide");
+}
+function stat(n, label){
+  return "<div class='stat'><b>" + n + "</b><span>" + label + "</span></div>";
+}
+
+/* ---------- actions ---------- */
+
+$("btnConnect").onclick = async function(){
+  var email = ($("em").value || "").trim().toLowerCase();
+  var pw = $("pw").value || "";
+  if(!email || !pw){ log("Enter an email and password first.", "bad"); return; }
+  this.disabled = true;
+  setTag("connState", "connecting", "t-warn");
+  try{
+    log("Signing in to source project partners-playbook");
+    await srcAuth.signInWithEmailAndPassword(email, pw);
+    log("Source sign-in ok as " + email, "ok");
+
+    log("Signing in to target project wayfinder-1b0a4");
+    await dstAuth.signInWithEmailAndPassword(email, pw);
+    log("Target sign-in ok as " + email, "ok");
+
+    log("Reading source courses");
+    var cs = await srcFs.collection("courses").get();
+    STATE.courses = [];
+    cs.forEach(function(d){ var c = d.data(); c.id = d.id; STATE.courses.push(c); });
+    STATE.courses.sort(function(a,b){ return (a.order || 0) - (b.order || 0); });
+    log("Read " + STATE.courses.length + " courses", "ok");
+
+    log("Reading source users");
+    try{
+      var us = await srcFs.collection("users").get();
+      STATE.users = [];
+      us.forEach(function(d){ var u = d.data(); u.uid = d.id; STATE.users.push(u); });
+      log("Read " + STATE.users.length + " users. Roles are exported, not written: the two projects have " +
+          "different Auth, so uids do not carry over. Role presets go in settings/rolePresets keyed by email.", "ok");
+    }catch(e){
+      log("Could not read source users: " + e.message + ". Not fatal, courses are what matter.", "bad");
+    }
+
+    buildInventory();
+    renderInventory();
+    setTag("connState", "connected", "t-ok");
+    log("Inventory built. Read it before writing anything.", "ok");
+  }catch(e){
+    setTag("connState", "failed", "t-bad");
+    log("Connect failed: " + (e.code || "") + " " + e.message, "bad");
+    log("If the source succeeded and the target failed, the two projects have different passwords for this " +
+        "account. Reset one so they match, or run the write step from a browser already signed in to the target.", "bad");
+    this.disabled = false;
+  }
+};
+
+async function runWrite(dry){
+  var pub = STATE.courses.filter(function(c){ return c.published; });
+  if(!pub.length){ log("No published courses to write.", "bad"); return; }
+
+  setTag("writeState", dry ? "dry run" : "writing", "t-warn");
+  log((dry ? "DRY RUN" : "WRITING") + ": " + pub.length + " published courses");
+
+  STATE.built = [];
+  var totalLessons = 0, totalDropped = 0, failed = 0;
+
+  for(var i = 0; i < pub.length; i++){
+    var c = pub[i];
+    var t = transform(c, {});
+    STATE.built.push({ id: c.id, doc: t.doc });
+    totalLessons += t.doc.lessons.length;
+    totalDropped += t.dropped.length;
+
+    var line = "  " + c.title + ": " + t.doc.lessons.length + " lessons" +
+               (t.dropped.length ? ", " + t.dropped.length + " dropped" : "") +
+               (t.degraded.length ? ", " + t.degraded.length + " degraded" : "");
+
+    if(dry){
+      log(line + "  (not written)");
+    } else {
+      try{
+        await dstFs.collection("courses").doc(c.id).set(t.doc);
+        log(line + "  written", "ok");
+      }catch(e){
+        failed++;
+        log("  " + c.title + ": WRITE FAILED " + (e.code || "") + " " + e.message, "bad");
+      }
+    }
+  }
+
+  /* Role presets, keyed by email. An admin applies these from the People
+     screen. They cannot be applied automatically, because the rules
+     rightly forbid anyone raising their own role. */
+  var presets = {};
+  STATE.users.forEach(function(u){
+    var em = String(u.email || "").toLowerCase();
+    if(em && u.role && u.role !== "learner") presets[em] = u.role;
+  });
+
+  if(!dry){
+    if(Object.keys(presets).length){
+      try{
+        await dstFs.collection("settings").doc("rolePresets").set({
+          byEmail: presets, updatedAt: Date.now(), source: "partners-playbook", tool: BUILD
+        });
+        log("Wrote settings/rolePresets with " + Object.keys(presets).length + " non-learner role(s)", "ok");
+      }catch(e){
+        log("Could not write role presets: " + e.message, "bad");
+      }
+    } else {
+      log("No non-learner roles in the source, so no role presets needed.");
+    }
+    try{
+      await dstFs.collection("settings").doc("migration").set({
+        ranAt: Date.now(),
+        ranBy: meEmail(),
+        tool: BUILD,
+        coursesWritten: pub.length - failed,
+        lessonsWritten: totalLessons,
+        lessonsDropped: totalDropped
+      });
+      log("Wrote settings/migration as the record of this run", "ok");
+    }catch(e){
+      log("Could not write the migration record: " + e.message, "bad");
+    }
+  }
+
+  log("Totals: " + pub.length + " courses, " + totalLessons + " lessons kept, " + totalDropped + " dropped" +
+      (failed ? ", " + failed + " FAILED" : ""), failed ? "bad" : "ok");
+
+  if(dry){
+    setTag("writeState", "dry run clean", "t-ok");
+    $("btnWrite").disabled = false;
+    log("Dry run finished. Nothing was written. The real write button is now enabled.", "ok");
+  } else {
+    setTag("writeState", failed ? failed + " failed" : "written", failed ? "t-bad" : "t-ok");
+    log("Done. Open the Academy and confirm the courses are there before trusting this.", "ok");
+  }
+}
+
+$("btnDry").onclick = function(){ runWrite(true); };
+$("btnWrite").onclick = function(){
+  if(!confirm("Write " + STATE.courses.filter(function(c){ return c.published; }).length +
+              " courses into wayfinder-1b0a4? Existing documents with the same ids are overwritten.")) return;
+  runWrite(false);
+};
+
+$("btnJson").onclick = function(){
+  download("academy-migration-inventory.json", JSON.stringify({
+    tool: BUILD, builtAt: new Date().toISOString(), inventory: STATE.inventory, users: STATE.users.length
+  }, null, 2), "application/json");
+  log("Inventory JSON downloaded");
+};
+
+$("btnCsv").onclick = function(){
+  var rows = [["course","course_id","lesson","lesson_type","outcome","reason"]];
+  STATE.inventory.forEach(function(i){
+    if(!i.published) return;
+    i.dropped.forEach(function(d){ rows.push([i.title, i.id, d.title, d.type, "dropped", d.reason]); });
+    i.degraded.forEach(function(d){ rows.push([i.title, i.id, d.title, "both", "video kept, guide lost", d.reason]); });
+  });
+  if(rows.length === 1){ log("Nothing is lost, so the CSV would be empty.", "bad"); return; }
+  var csv = rows.map(function(r){
+    return r.map(function(v){ return "\"" + String(v).replace(/"/g, "\"\"") + "\""; }).join(",");
+  }).join("\n");
+  download("academy-lesson-loss.csv", csv, "text/csv");
+  log("Loss CSV downloaded, " + (rows.length - 1) + " rows");
+};
+
+if(FB_READY){
+  log("Migration console ready. Build " + BUILD);
+} else {
+  setTag("connState", "unavailable", "t-bad");
+  $("btnConnect").disabled = true;
+  log("Cannot start: " + FB_ERROR, "bad");
+  log("Nothing has been read or written. Reload once the library loads.", "bad");
+}
+</script>
+</body>
+</html>
