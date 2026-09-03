@@ -56,7 +56,7 @@ function AdminConsole({ me, guides, showToast }){
           onChanged={reload}/>
       )}
 
-      {tab === "people" && <AdminPeople me={me} courses={courses} showToast={showToast}/>}
+      {tab === "people" && <AdminPeople me={me} courses={courses} guides={guides} showToast={showToast}/>}
     </div>
   );
 }
@@ -255,8 +255,7 @@ function AdminBuilder({ course, allCourses, guides, me, showToast, onClose }){
 
           <div style={{display:"flex",flexDirection:"column",gap:7,marginTop:6}}>
             {lessons.map((l,i)=>{
-              const g = l.type==="guide" ? (guides||[]).find(x=> x.id === l.guideId) : null;
-              const missing = l.type==="guide" && !g;
+              const health = dataLessonHealth(l, guides);
               return (
                 <div key={l.id} draggable
                   onDragStart={()=>setDragId(l.id)}
@@ -273,10 +272,10 @@ function AdminBuilder({ course, allCourses, guides, me, showToast, onClose }){
                   <span style={{flex:1,minWidth:0}}>
                     <span className="u" style={{display:"block",fontWeight:700,fontSize:13,letterSpacing:".02em",
                       color:"var(--sand-900)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{l.title}</span>
-                    <span style={{display:"block",fontSize:11.5,color:missing?"var(--pm-coral)":"var(--sand-500)"}}>
+                    <span style={{display:"block",fontSize:11.5,color:health.ok?"var(--sand-500)":"var(--pm-coral)"}}>
                       {({guide:"Guide",video:"Video",text:"Written",quiz:"Quiz"})[l.type] || l.type}
                       {l.required === false && " · optional"}
-                      {missing && " · guide missing from the library"}
+                      {" · "}{health.ok ? health.how : health.how + ". " + health.why}
                     </span>
                   </span>
 
@@ -292,6 +291,24 @@ function AdminBuilder({ course, allCourses, guides, me, showToast, onClose }){
               );
             })}
           </div>
+
+          {(()=>{
+            const broken = lessons.filter(l=> !dataLessonHealth(l, guides).ok);
+            if(!broken.length) return null;
+            return (
+              <div style={{marginTop:13,background:"#ffe9ea",borderLeft:"3px solid var(--pm-coral)",
+                borderRadius:"0 11px 11px 0",padding:"12px 14px"}}>
+                <div className="u" style={{fontWeight:800,fontSize:11.5,letterSpacing:".07em",color:"#8f2126",marginBottom:5}}>
+                  {broken.length} LESSON{broken.length===1?"":"S"} CANNOT BE COMPLETED
+                </div>
+                <p style={{fontSize:13,color:"#8f2126"}}>
+                  A learner can open {broken.length===1?"it":"them"} but will never get credit, and the course will
+                  never finish. Fix {broken.length===1?"it":"them"}, or mark {broken.length===1?"it":"them"} optional
+                  so {broken.length===1?"it does":"they do"} not block completion.
+                </p>
+              </div>
+            );
+          })()}
 
           {lessons.length > 1 && (
             <p style={{fontSize:12,color:"var(--sand-500)",marginTop:11}}>
@@ -577,11 +594,12 @@ function AdminLessonModal({ lesson, guides, onSave, onClose }){
 
 /* ================= People ================= */
 
-function AdminPeople({ me, courses, showToast }){
+function AdminPeople({ me, courses, guides, showToast }){
   const [users,setUsers]   = useState([]);
   const [prog,setProg]     = useState([]);
   const [loading,setLoad]  = useState(true);
   const [busy,setBusy]     = useState("");
+  const [openUid,setOpen]  = useState(null);
 
   const load = async ()=>{
     setLoad(true);
@@ -629,7 +647,7 @@ function AdminPeople({ me, courses, showToast }){
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:13.5}}>
             <thead>
               <tr>
-                {["Person","Role","Courses done","Last seen"].map(h=>(
+                {["Person","Role","Lessons done","Last seen","" ].map(h=>(
                   <th key={h} className="u" style={{textAlign:"left",fontSize:10,fontWeight:800,letterSpacing:".1em",
                     color:"var(--sand-500)",padding:"8px 9px",borderBottom:"1px solid var(--sand-200)"}}>{h}</th>
                 ))}
@@ -643,7 +661,15 @@ function AdminPeople({ me, courses, showToast }){
                   return c && dataIsComplete(c, p);
                 }).length;
                 const boot = isAdminEmail(u.email);
-                return (
+
+                /* What this person can actually see, which is the number that
+                   matters. An admin sees everything, so their denominator is
+                   different from a learner's. */
+                const asMe = { email:u.email, role:u.role||"learner", admin:boot || (u.role==="admin"), profile:u };
+                const canSee = courses.filter(c=> dataCanSeeCourse(c, asMe));
+                const visibleLessons = canSee.reduce((a,c)=> a + dataLessonsOf(c).length, 0);
+                const lessonsDone = mine.reduce((a,p)=> a + ((p.lessonsDone||[]).length), 0);
+                const row = (
                   <tr key={u.uid}>
                     <td style={{padding:"11px 9px",borderBottom:"1px solid var(--sand-100)"}}>
                       <div className="u" style={{fontWeight:700,fontSize:13,color:"var(--sand-900)"}}>{u.name || "No name"}</div>
@@ -663,14 +689,84 @@ function AdminPeople({ me, courses, showToast }){
                         </select>
                       )}
                     </td>
-                    <td className="num" style={{padding:"11px 9px",borderBottom:"1px solid var(--sand-100)",color:"var(--sand-800)"}}>
-                      {doneN} of {mine.length || 0}
+                    <td style={{padding:"11px 9px",borderBottom:"1px solid var(--sand-100)",color:"var(--sand-800)"}}>
+                      <span className="num">{lessonsDone}</span>
+                      <span style={{fontSize:12,color:"var(--sand-500)"}}>
+                        {" of "}{visibleLessons} available
+                      </span>
+                      {!!doneN && <span style={{fontSize:12,color:"var(--pm-green)"}}>{" · " + doneN + " course" + (doneN===1?"":"s") + " finished"}</span>}
                     </td>
                     <td style={{padding:"11px 9px",borderBottom:"1px solid var(--sand-100)",color:"var(--sand-500)",fontSize:12.5}}>
                       {u.lastSeenAt ? new Date(u.lastSeenAt).toLocaleDateString("en-US",{month:"short",day:"numeric"}) : "never"}
                     </td>
+                    <td style={{padding:"11px 9px",borderBottom:"1px solid var(--sand-100)"}}>
+                      <button onClick={()=>setOpen(openUid===u.uid?null:u.uid)} className="u"
+                        style={{...btn.ghost,padding:"6px 11px",fontSize:10.5}}>
+                        {openUid===u.uid ? "Hide" : "Detail"}
+                      </button>
+                    </td>
                   </tr>
                 );
+                const detail = openUid !== u.uid ? null : (
+                  <tr key={u.uid+"-d"}>
+                    <td colSpan={5} style={{padding:"0 9px 16px",borderBottom:"1px solid var(--sand-100)"}}>
+                      <div style={{background:"var(--sand-50)",border:"1px solid var(--sand-200)",borderRadius:12,padding:"13px 15px"}}>
+                        {!canSee.length && <p style={{fontSize:13,color:"var(--sand-600)"}}>
+                          No courses are visible to this person yet. Publish one, or assign one to them.
+                        </p>}
+                        {canSee.map(c=>{
+                          const p = mine.find(x=> x.courseId === c.id);
+                          const cnt = dataCounts(c, p);
+                          const doneIds = (p && p.lessonsDone) || [];
+                          return (
+                            <div key={c.id} style={{marginBottom:12}}>
+                              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:2,flexWrap:"wrap"}}>
+                                <span className="u" style={{fontWeight:800,fontSize:12,letterSpacing:".04em",color:"var(--sand-900)"}}>{c.title}</span>
+                                <span className="num" style={{fontSize:11.5,color:"var(--sand-500)"}}>
+                                  {cnt.done} of {cnt.total} &middot; {dataPct(c,p)}%
+                                </span>
+                                {dataIsComplete(c,p) && <Pill ok label="DONE"/>}
+                                {!p && <span style={{fontSize:11.5,color:"var(--sand-400)"}}>not started</span>}
+                              </div>
+                              {p && (
+                                <div style={{fontSize:11.5,color:"var(--sand-500)",marginBottom:6}}>
+                                  Started {dataDay(p.startedAt)}
+                                  {p.updatedAt ? " · last active " + dataDay(p.updatedAt) : ""}
+                                  {p.completedAt ? " · finished " + dataDay(p.completedAt) : ""}
+                                </div>
+                              )}
+                              <div style={{display:"flex",flexDirection:"column",gap:3}}>
+                                {dataLessonsOf(c).map(l=>{
+                                  const h = dataLessonHealth(l, guides);
+                                  const ok = doneIds.includes(l.id);
+                                  const det = dataLessonDetail(l, p);
+                                  return (
+                                    <div key={l.id} style={{display:"flex",alignItems:"center",gap:8,fontSize:12.5}}>
+                                      <span style={{flex:"none",width:15,height:15,borderRadius:"50%",display:"grid",placeItems:"center",
+                                        background:ok?"var(--pm-green)":(h.ok?"var(--sand-200)":"var(--pm-coral)"),color:"#fff",fontSize:9}}>
+                                        {ok ? "\u2713" : (h.ok ? "" : "!")}
+                                      </span>
+                                      <span style={{color:ok?"var(--sand-800)":"var(--sand-600)"}}>{l.title}</span>
+                                      {l.required === false && <span style={{fontSize:11,color:"var(--sand-400)"}}>optional</span>}
+                                      <span style={{color:h.ok?"var(--sand-400)":"var(--pm-coral)",fontSize:11.5}}>
+                                        {ok
+                                          ? (det.when ? "done " + dataWhen(det.when) : "done") + (det.note ? " (" + det.note + ")" : "")
+                                          : det.state === "partial"
+                                            ? "stopped " + dataClock(det.reached) + " in, not finished"
+                                            : (h.ok ? h.how : h.how + ". " + h.why)}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </td>
+                  </tr>
+                );
+                return detail ? [row, detail] : row;
               })}
             </tbody>
           </table>

@@ -3,7 +3,7 @@
 Wayfinder and the Partners Playbook Academy merged into one product. This
 folder is the app. Deploy by dragging it into the repo, no build step.
 
-Build marker: `academy-2026.09.03-p3`. It is printed in Settings under
+Build marker: `academy-2026.09.03-p5`. It is printed in Settings under
 THIS BUILD. Read it before diagnosing anything, because if it does not
 match what you just deployed then the deploy did not land and the bug is
 not real.
@@ -100,3 +100,38 @@ short written lessons are effectively instant. Videos have no such gap.
 
 A video that fails to load says so plainly and tells the learner to report
 it, rather than leaving them stuck in a lesson they cannot finish.
+
+
+## Diagnosing "it will not complete"
+
+Because completion is earned, a lesson with nothing to watch or read can
+never be completed, and a learner hitting one reasonably concludes the tool
+is broken. Two places now tell you before that happens.
+
+**The course builder** prints how each lesson earns completion right under
+its title, and shows a red banner when any lesson has no route to earning
+it. The three failure cases are a guide with no video and no written steps,
+a guide that was deleted from the Library, and a video lesson with no link.
+
+**People, Detail** expands to lesson-level progress per person, against the
+courses that person can actually see. A green tick is done, a red mark means
+the lesson cannot be completed and says why.
+
+The Lessons done column counts lessons, not courses, because "0 of 1" for
+courses reads like the person only has one course available when it actually
+meant one course started.
+
+
+## Drilling into one person
+
+Admin, People, Detail expands to the whole picture for that person, scoped
+to the courses they can actually see. Per course: lessons done, percent,
+when they started, when they were last active, when they finished. Per
+lesson: the exact date and time it was completed, or how far into an
+unfinished video they got, or the reason a lesson cannot be completed at
+all.
+
+"Stopped 4m 12s in" is a different conversation from "never opened it", so
+partial video position is shown rather than just an empty circle. Lessons an
+admin completed with the override say so, so an override is never mistaken
+for real progress later.

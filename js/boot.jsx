@@ -4,6 +4,6 @@
 
 /* Build marker. Visible in Settings and on window, so a deploy can be
    confirmed instead of assumed. */
-window.ACADEMY_BUILD = "academy-2026.09.03-p3";
+window.ACADEMY_BUILD = "academy-2026.09.03-p5";
 
 ReactDOM.render(<App/>, document.getElementById("root"));

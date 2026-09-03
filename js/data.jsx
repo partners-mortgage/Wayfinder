@@ -211,6 +211,72 @@ async function dataSavePosition(me, course, lessonId, seconds){
   }
 }
 
+/* ---------- small formatters for the reporting views ---------- */
+
+const dataWhen = (ms)=>{
+  if(!ms) return "";
+  return new Date(ms).toLocaleDateString("en-US",{ month:"short", day:"numeric" })
+    + " at " + new Date(ms).toLocaleTimeString("en-US",{ hour:"numeric", minute:"2-digit" });
+};
+
+const dataDay = (ms)=> ms ? new Date(ms).toLocaleDateString("en-US",{ month:"short", day:"numeric" }) : "";
+
+const dataClock = (secs)=>{
+  const n = Math.max(0, Math.floor(secs || 0));
+  const m = Math.floor(n / 60), s2 = n % 60;
+  return m + "m " + (s2 < 10 ? "0" : "") + s2 + "s";
+};
+
+/* How far into a lesson somebody got without finishing it. Knowing a person
+   stopped four minutes in is a different conversation from knowing they
+   never opened it. */
+function dataLessonDetail(lesson, prog){
+  const st = (prog && prog.lessonState && prog.lessonState[lesson.id]) || null;
+  const done = ((prog && prog.lessonsDone) || []).includes(lesson.id);
+  if(done){
+    return { state:"done", when: st && st.doneAt ? st.doneAt : null,
+             note: st && st.adminOverride ? "marked by an admin" : "" };
+  }
+  if(st && st.lastPos) return { state:"partial", reached: st.lastPos };
+  return { state:"none" };
+}
+
+/* ---------- can this lesson actually be finished? ----------
+   Completion is earned, so every lesson needs a route to earning it. A
+   guide with no video and no written steps has none, and a learner hitting
+   that just sees a lesson that will not complete and assumes the tool is
+   broken. This tells an admin before it ever reaches a learner. */
+
+function dataLessonHealth(lesson, guides){
+  const t = lesson.type;
+
+  if(t === "quiz") return { ok:false, how:"Quizzes are not built yet", why:"Remove it or change the type until the next phase." };
+
+  if(t === "video"){
+    return lesson.videoUrl
+      ? { ok:true, how:"Watch 90% of the video" }
+      : { ok:false, how:"No video attached", why:"Paste a video link, or change the type to Written." };
+  }
+
+  if(t === "text"){
+    return (lesson.body && String(lesson.body).trim())
+      ? { ok:true, how:"Read to the end" }
+      : { ok:false, how:"No content", why:"Write the lesson body." };
+  }
+
+  if(t === "guide"){
+    const g = (guides || []).find(x=> x.id === lesson.guideId);
+    if(!g) return { ok:false, how:"Guide missing from the library", why:"It was deleted in the authoring flow. Pick a different guide." };
+    if(g.videoUrl) return { ok:true, how:"Watch 90% of the guide video" };
+    const steps = Array.isArray(g.guideSteps) ? g.guideSteps : [];
+    if(steps.length) return { ok:true, how:"Read to the end of the " + steps.length + " written steps" };
+    return { ok:false, how:"This guide has no video and no written steps",
+             why:"There is nothing for a learner to watch or read, so it can never complete. Finish the guide in the Library first." };
+  }
+
+  return { ok:false, how:"Unknown lesson type: " + t, why:"Change the type." };
+}
+
 /* ---------- gating ----------
    A course is locked when a prerequisite is unfinished or the learner has
    not reached the required level. Admins are never locked out, because
