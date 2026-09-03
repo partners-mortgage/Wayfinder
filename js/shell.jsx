@@ -368,7 +368,8 @@ Write a fuller written explanation for the PDF version of this step: 2 to 4 sent
       {inFlow && <FlowStrip steps={FLOW} active={stageIndex} onExit={()=>setStage("library")}/>}
 
       {stage==="library" && <Library {...{guides,loadingLib,onNew:newGuide,onDelete:deleteGuide,setStage,me,onWatch:setWatching,onShared:()=>showToast("Share link copied.")}}/>}
-      {stage==="learn" && <Learn guides={guides}/>}
+      {stage==="learn" && <Learn guides={guides} me={me} showToast={showToast}/>}
+      {stage==="admin" && <AdminConsole me={me} guides={guides} showToast={showToast}/>}
       {stage==="settings" && <SettingsScreen {...{apiKey,setApiKey,keyState,setKeyState,keyMsg,testKey,me}}/>}
 
       {inFlow && (
@@ -401,8 +402,10 @@ Write a fuller written explanation for the PDF version of this step: 2 to 4 sent
 
 /* ================= Header ================= */
 function Header({ stage, setStage, onRecord, me }){
-  const nav=[["Library","library"],["Learn","learn"],["Settings","settings"]];
-  const active = ["library","learn","settings"].includes(stage) ? stage : null;
+  const nav = [["Library","library"],["Learn","learn"]]
+    .concat(me && me.admin ? [["Admin","admin"]] : [])
+    .concat([["Settings","settings"]]);
+  const active = ["library","learn","admin","settings"].includes(stage) ? stage : null;
   return (
     <header style={{height:64,background:"#fff",borderBottom:"1px solid var(--sand-200)",display:"flex",alignItems:"center",gap:20,padding:"0 24px",position:"sticky",top:0,zIndex:30}}>
       <button onClick={()=>setStage("library")} style={{display:"flex",alignItems:"center",gap:11,background:"none",border:"none",cursor:"pointer",padding:0}}>
