@@ -3,7 +3,7 @@
 Wayfinder and the Partners Playbook Academy merged into one product. This
 folder is the app. Deploy by dragging it into the repo, no build step.
 
-Build marker: `academy-2026.09.02-p2`. It is printed in Settings under
+Build marker: `academy-2026.09.03-p3`. It is printed in Settings under
 THIS BUILD. Read it before diagnosing anything, because if it does not
 match what you just deployed then the deploy did not land and the bug is
 not real.
@@ -76,3 +76,27 @@ so they can never disagree with each other.
 
 Points are deliberately not awarded yet. The rules do not let a person raise
 their own totals, so awarding moves to the proxy Worker in the next phase.
+
+
+## Completion is earned, never declared
+
+There is no "mark complete" button for learners. Progress that a person can
+award themselves is not progress, it is a checkbox.
+
+| Lesson type | What completes it |
+| --- | --- |
+| Video | 90 percent watched |
+| Guide with a video | 90 percent of the video watched |
+| Guide with no video | Scrolling to the end of the written steps |
+| Written | Scrolling to the end of the lesson |
+
+Admins keep an "Override as admin" button so a course can be checked without
+sitting through every video. Learners never see it.
+
+One honest limitation: a written lesson short enough to fit on one screen
+completes as soon as it opens, because the end of it is already visible.
+That is correct in the sense that they did see all of it, but it means very
+short written lessons are effectively instant. Videos have no such gap.
+
+A video that fails to load says so plainly and tells the learner to report
+it, rather than leaving them stuck in a lesson they cannot finish.

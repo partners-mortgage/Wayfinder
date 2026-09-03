@@ -355,7 +355,7 @@ function LearnLesson({ course, lessonId, guides, me, prog, onDone, onGo, onBack 
       <div style={{marginTop:22}}>
         {lesson.type === "guide" && (
           guide
-            ? <LearnGuideBody guide={guide} onWatched={(extra)=>onDone(lesson, extra)}/>
+            ? <LearnGuideBody guide={guide} done={isDone} onWatched={(extra)=>onDone(lesson, extra)}/>
             : <LearnMissing text="This guide is no longer in the library. It may have been deleted in the authoring flow."/>
         )}
 
@@ -367,7 +367,9 @@ function LearnLesson({ course, lessonId, guides, me, prog, onDone, onGo, onBack 
             : <LearnMissing text="No video has been attached to this lesson yet."/>
         )}
 
-        {lesson.type === "text" && <LearnText body={lesson.body}/>}
+        {lesson.type === "text" && (
+          <LearnText body={lesson.body} done={isDone} onRead={()=>onDone(lesson,{ readOnly:true })}/>
+        )}
 
         {lesson.type === "quiz" && <LearnMissing text="Quizzes arrive in the next phase. This lesson cannot be taken yet."/>}
       </div>
@@ -379,9 +381,15 @@ function LearnLesson({ course, lessonId, guides, me, prog, onDone, onGo, onBack 
           </button>
         )}
 
-        {!isDone && lesson.type !== "quiz" && (
-          <button onClick={()=>onDone(lesson,{})} className="u" style={{...btn.primary,padding:"10px 18px",fontSize:11.5}}>
-            <IcCheck size={14}/> Mark complete
+{/* There is deliberately no "mark complete" button for learners.
+            Completion has to be earned by watching or reading to the end,
+            or the progress numbers mean nothing. Admins keep an override
+            so they can check a course without sitting through every video. */}
+        {!isDone && lesson.type !== "quiz" && me && me.admin && (
+          <button onClick={()=>onDone(lesson,{ adminOverride:true })} className="u"
+            title="Admin only. Learners cannot do this."
+            style={{...btn.ghost,padding:"10px 16px",fontSize:11.5,color:"var(--sand-600)"}}>
+            <IcCheck size={14}/> Override as admin
           </button>
         )}
 
@@ -397,6 +405,46 @@ function LearnLesson({ course, lessonId, guides, me, prog, onDone, onGo, onBack 
   );
 }
 
+/* Completion is earned, never declared.
+   Video and guide-with-video complete at 90 percent watched. Written
+   lessons and guides with no video complete when this marker scrolls into
+   view, which means the learner actually reached the end of the content
+   rather than clicking a button at the top. */
+function LearnReadMarker({ done, onReach }){
+  const ref = useRef(null);
+  const fired = useRef(false);
+
+  useEffect(()=>{
+    if(done || !ref.current) return;
+    /* No IntersectionObserver means an old browser. Fall back to marking it
+       read rather than trapping someone in a lesson they cannot finish. */
+    if(typeof IntersectionObserver === "undefined"){
+      if(!fired.current){ fired.current = true; onReach(); }
+      return;
+    }
+    const io = new IntersectionObserver(entries=>{
+      entries.forEach(e=>{
+        if(e.isIntersecting && !fired.current){
+          fired.current = true;
+          onReach();
+          io.disconnect();
+        }
+      });
+    },{ threshold: 1 });
+    io.observe(ref.current);
+    return ()=> io.disconnect();
+  },[done]);
+
+  return (
+    <div ref={ref} style={{display:"flex",alignItems:"center",gap:9,marginTop:18,padding:"12px 14px",
+      background:done?"var(--pm-green-wash)":"var(--sand-100)",borderRadius:11,fontSize:13,
+      color:done?"#5a7d0f":"var(--sand-600)"}}>
+      {done ? <IcCheck size={15}/> : <IcDoc size={15}/>}
+      <span>{done ? "You have read this lesson." : "Read to the end of this lesson to complete it."}</span>
+    </div>
+  );
+}
+
 function LearnMissing({ text }){
   return (
     <div style={{display:"flex",gap:11,alignItems:"flex-start",background:"var(--amber-wash)",
@@ -407,12 +455,13 @@ function LearnMissing({ text }){
   );
 }
 
-function LearnText({ body }){
+function LearnText({ body, done, onRead }){
   if(!body || !String(body).trim()) return <LearnMissing text="This lesson has no content yet."/>;
   return (
     <Card>
       <div style={{fontSize:15.5,lineHeight:1.75,color:"var(--sand-800)"}}
         dangerouslySetInnerHTML={{ __html: dataMarkdown(body) }}/>
+      <LearnReadMarker done={done} onReach={onRead}/>
     </Card>
   );
 }
@@ -426,6 +475,7 @@ function LearnVideo({ url, me, course, lesson, lastPos, onWatched }){
   const fired = useRef(false);
   const lastSave = useRef(0);
   const restored = useRef(false);
+  const [failed,setFailed] = useState(false);
 
   const onTime = ()=>{
     const v = ref.current;
@@ -454,13 +504,15 @@ function LearnVideo({ url, me, course, lesson, lastPos, onWatched }){
     <div>
       <div style={{borderRadius:14,overflow:"hidden",background:"#000",border:"1px solid var(--sand-200)"}}>
         <video ref={ref} src={url} controls playsInline preload="metadata"
-          onLoadedMetadata={onMeta} onTimeUpdate={onTime}
+          onLoadedMetadata={onMeta} onTimeUpdate={onTime} onError={()=>setFailed(true)}
           onEnded={()=>{ if(!fired.current){ fired.current = true; onWatched({}); } }}
           style={{width:"100%",display:"block",maxHeight:520}}/>
       </div>
-      <p style={{fontSize:12.5,color:"var(--sand-500)",marginTop:9}}>
-        {lastPos ? "Picking up where you left off. " : ""}This lesson marks itself complete once you have watched 90 percent.
-      </p>
+      {failed
+        ? <div style={{marginTop:11}}><LearnMissing text="This video would not load, so the lesson cannot be completed. That is a problem with the file, not with you. Tell a training admin and move on to the next lesson."/></div>
+        : <p style={{fontSize:12.5,color:"var(--sand-500)",marginTop:9}}>
+            {lastPos ? "Picking up where you left off. " : ""}This lesson marks itself complete once you have watched 90 percent. There is no way to skip it.
+          </p>}
     </div>
   );
 }
@@ -468,7 +520,7 @@ function LearnVideo({ url, me, course, lesson, lastPos, onWatched }){
 /* A guide lesson is a Wayfinder guide: the video, the written steps, and
    the PDF. This reuses the shape the Watch view already established rather
    than inventing a second way to show the same thing. */
-function LearnGuideBody({ guide, onWatched }){
+function LearnGuideBody({ guide, onWatched, done }){
   const steps = Array.isArray(guide.guideSteps) ? guide.guideSteps : [];
   const fired = useRef(false);
   const ref = useRef(null);
@@ -515,6 +567,10 @@ function LearnGuideBody({ guide, onWatched }){
           </div>
         </Card>
       )}
+
+      {/* No video means the written steps are the lesson, so reaching the end
+          of them is what completes it. */}
+      {!guide.videoUrl && !!steps.length && <LearnReadMarker done={done} onReach={()=>onWatched({ readOnly:true })}/>}
 
       {!guide.videoUrl && !steps.length && <LearnMissing text="This guide has no video or written steps yet."/>}
     </div>
